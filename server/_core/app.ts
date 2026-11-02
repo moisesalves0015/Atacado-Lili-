@@ -12,7 +12,7 @@ import { createContext } from "./context";
 
 export const UPLOADS_DIR = process.env.VERCEL
   ? path.join(os.tmpdir(), "vendaatacado-uploads")
-  : path.resolve(import.meta.dirname, "../..", "data", "uploads");
+  : path.resolve(process.cwd(), "data", "uploads");
 
 export function createApp() {
   try {

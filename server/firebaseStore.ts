@@ -103,7 +103,7 @@ export interface LocalStoreData {
   }>;
 }
 
-const BUNDLED_DATA_DIR = path.resolve(import.meta.dirname, "..", "data");
+const BUNDLED_DATA_DIR = path.resolve(process.cwd(), "data");
 const BUNDLED_DATA_FILE = path.join(BUNDLED_DATA_DIR, "db.json");
 
 const DATA_DIR = process.env.VERCEL
