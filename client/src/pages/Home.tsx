@@ -152,6 +152,117 @@ function csvFromRows(rows: any[]) {
   return [header, ...lines].join("\n");
 }
 
+function dataUrlToFileSync(dataUrl: string, baseName: string): File | null {
+  try {
+    const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+    if (!match) return null;
+    const mime = match[1];
+    const b64 = match[2];
+    const binStr = atob(b64);
+    const len = binStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binStr.charCodeAt(i);
+    }
+    const ext = mime.includes("png") ? "png" : "jpg";
+    const safeName = baseName.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "produto";
+    return new File([bytes], `${safeName}.${ext}`, { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+function copyTextSync(text: string) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  } catch {
+    // Ignore fallback copy error
+  }
+  navigator.clipboard?.writeText(text).catch(() => {});
+}
+
+async function imageUrlToBlob(imageUrl: string): Promise<Blob> {
+  const res = await fetch(imageUrl);
+  return await res.blob();
+}
+
+async function imageUrlToPngBlob(imageUrl: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth || img.width || 800;
+      canvas.height = img.naturalHeight || img.height || 800;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas context unavailable"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error("PNG conversion failed"));
+      }, "image/png");
+    };
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = imageUrl;
+  });
+}
+
+async function shareReportOnWhatsApp(text: string, product?: any) {
+  if (!text) return;
+
+  // Always copy the full report text synchronously first (keeps user gesture intact)
+  copyTextSync(text);
+
+  if (product?.imageUrl) {
+    try {
+      let file = dataUrlToFileSync(product.imageUrl, product.name || "produto");
+      if (!file) {
+        const blob = await imageUrlToBlob(product.imageUrl);
+        const ext = blob.type.includes("png") ? "png" : "jpg";
+        const safeName = (product.name || "produto").toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "produto";
+        file = new File([blob], `${safeName}.${ext}`, { type: blob.type || "image/jpeg" });
+      }
+
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (isMobile && typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+        // IMPORTANT: Do NOT pass `title` here; passing only `{ files, text }` ensures WhatsApp
+        // uses `text` (the full multi-line report) as the photo caption (`legenda`).
+        await navigator.share({
+          files: [file],
+          text,
+        });
+        return;
+      }
+
+      // Desktop fallback: copy PNG image to clipboard and open WhatsApp with the full report text
+      try {
+        if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+          const pngBlob = await imageUrlToPngBlob(product.imageUrl);
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
+          toast.success("Texto preenchido no WhatsApp e foto copiada! Aperte Ctrl+V na conversa para enviar a foto com a legenda.");
+        }
+      } catch {
+        // Ignore clipboard image error
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError") return;
+    }
+  }
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+}
+
 function StatCard({ label, value, helper, icon: Icon, accent = "teal" }: { label: string; value: string; helper?: string; icon: typeof Package; accent?: string }) {
   return <div className={`stat-card accent-${accent}`}>
     <div className="stat-card-top"><span>{label}</span><span className="stat-icon"><Icon size={17} /></span></div>
@@ -828,7 +939,40 @@ function FinanceView({ orders, onOpen, onCharge }: any) {
 }
 
 function ReportsView({ products, productId, setProductId, rows, text, loading }: any) {
-  return <div className="content-stack"><SectionHeader eyebrow="para enviar às chefes" title="Relatórios" description="Escolha um produto ou veja o consolidado geral. O texto sai no mesmo padrão que você já usa." /><section className="report-builder"><div className="report-filters"><label>Produto<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">Todos os produtos</option>{products.map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label></div><div className="report-summary"><span><strong>{rows.length}</strong> linhas de venda</span><span><strong>{rows.reduce((sum: number, row: any) => sum + row.quantity, 0)}</strong> peças</span><span><strong>{formatMoney(rows.reduce((sum: number, row: any) => sum + row.totalCents, 0))}</strong> total</span></div></section><section className="report-layout"><div className="panel report-preview-panel"><div className="panel-heading"><div><div className="eyebrow">prévia em texto</div><h3>Relatório pronto</h3></div><div className="report-actions"><Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(text).then(() => toast.success("Relatório copiado"))}><Copy size={14} /> Copiar</Button><Button variant="outline" size="sm" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer")}><MessageCircle size={14} /> WhatsApp</Button></div></div>{loading ? <div className="loading-panel"><RefreshCw className="spin" size={18} /> Gerando relatório...</div> : <pre className="report-preview">{rows.length ? text : "Selecione um produto ou registre pedidos para gerar o relatório."}</pre>}<div className="report-footer-actions"><Button onClick={() => downloadText("relatorio-venda-atacado.txt", text)} disabled={!rows.length}><Download size={15} /> Baixar TXT</Button><Button variant="outline" onClick={() => window.print()} disabled={!rows.length}><FileText size={15} /> Gerar PDF</Button><Button variant="outline" onClick={() => downloadText("relatorio-venda-atacado.csv", csvFromRows(rows), "text/csv;charset=utf-8")} disabled={!rows.length}><Download size={15} /> Exportar Excel</Button></div></div><aside className="report-note"><div className="note-icon"><FileText size={18} /></div><strong>Formato preservado</strong><p>O nome e quantidade ficam juntos na primeira linha. O telefone entra na linha seguinte, com blocos separados por uma linha em branco.</p><span>Cancelados ficam fora por padrão.</span></aside></section></div>;
+  const selectedProduct = useMemo(() => {
+    if (productId) {
+      return products.find((p: any) => String(p.id) === String(productId)) ?? null;
+    }
+    const uniqueProductIds = Array.from(new Set(rows.map((r: any) => r.productId)));
+    if (uniqueProductIds.length === 1) {
+      return products.find((p: any) => p.id === uniqueProductIds[0]) ?? null;
+    }
+    return products.find((p: any) => rows.some((r: any) => r.productId === p.id) && p.imageUrl) ?? null;
+  }, [products, productId, rows]);
+
+  const perProductReports = useMemo(() => {
+    const byProd = new Map<number, any[]>();
+    for (const row of rows) {
+      byProd.set(row.productId, [...(byProd.get(row.productId) ?? []), row]);
+    }
+    return Array.from(byProd.entries()).map(([prodId, prodRows]) => {
+      const product = products.find((p: any) => p.id === prodId) ?? { id: prodId, name: prodRows[0]?.productName ?? "Produto" };
+      return {
+        product,
+        rows: prodRows,
+        reportText: buildReport(prodRows),
+      };
+    });
+  }, [rows, products]);
+
+  const activeReportText = useMemo(() => {
+    if (productId && perProductReports.length === 1) {
+      return perProductReports[0].reportText;
+    }
+    return text;
+  }, [productId, perProductReports, text]);
+
+  return <div className="content-stack"><SectionHeader eyebrow="para enviar às chefes" title="Relatórios" description="Escolha um produto ou veja o consolidado geral. O texto sai no mesmo padrão que você já usa." /><section className="report-builder"><div className="report-filters"><label>Produto<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">Todos os produtos</option>{products.map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label></div><div className="report-summary"><span><strong>{rows.length}</strong> linhas de venda</span><span><strong>{rows.reduce((sum: number, row: any) => sum + row.quantity, 0)}</strong> peças</span><span><strong>{formatMoney(rows.reduce((sum: number, row: any) => sum + row.totalCents, 0))}</strong> total</span></div></section><section className="report-layout"><div className="panel report-preview-panel"><div className="panel-heading"><div><div className="eyebrow">prévia em texto</div><h3>Relatório pronto</h3></div><div className="report-actions"><Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(activeReportText).then(() => toast.success("Relatório copiado"))} disabled={!rows.length}><Copy size={14} /> Copiar</Button><Button size="sm" onClick={() => shareReportOnWhatsApp(selectedProduct ? buildReport(rows.filter((r: any) => r.productId === selectedProduct.id)) : activeReportText, selectedProduct)} disabled={!rows.length}><MessageCircle size={14} /> {selectedProduct?.imageUrl ? "WhatsApp (Foto + Legenda)" : "WhatsApp"}</Button></div></div>{perProductReports.length > 0 && <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>{perProductReports.map(({ product, reportText }) => <div key={product.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "10px 12px", borderRadius: "11px", background: "#eef7f3", border: "1px solid #cde3dd" }}><div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "9px", border: "1px solid var(--line)", flexShrink: 0 }} /> : <div className="row-avatar">{product.name.charAt(0)}</div>}<div style={{ minWidth: 0 }}><strong style={{ display: "block", fontSize: "13px", color: "var(--teal-deep)" }}>{product.name}</strong><span style={{ fontSize: "11px", color: "var(--muted)" }}>Foto + relatório deste produto como legenda</span></div></div><Button size="sm" onClick={() => shareReportOnWhatsApp(reportText, product)}><MessageCircle size={14} /> Enviar Foto + Legenda</Button></div>)}</div>}{loading ? <div className="loading-panel"><RefreshCw className="spin" size={18} /> Gerando relatório...</div> : <pre className="report-preview">{rows.length ? activeReportText : "Selecione um produto ou registre pedidos para gerar o relatório."}</pre>}<div className="report-footer-actions"><Button onClick={() => downloadText("relatorio-venda-atacado.txt", activeReportText)} disabled={!rows.length}><Download size={15} /> Baixar TXT</Button><Button variant="outline" onClick={() => window.print()} disabled={!rows.length}><FileText size={15} /> Gerar PDF</Button><Button variant="outline" onClick={() => downloadText("relatorio-venda-atacado.csv", csvFromRows(rows), "text/csv;charset=utf-8")} disabled={!rows.length}><Download size={15} /> Exportar Excel</Button></div></div><aside className="report-note"><div className="note-icon"><FileText size={18} /></div><strong>Formato preservado</strong><p>O nome e quantidade ficam juntos na primeira linha. O telefone entra na linha seguinte, com blocos separados por uma linha em branco.</p><span>Cancelados ficam fora por padrão.</span></aside></section></div>;
 }
 
 function SettingsView({ user, audit, onExport, onSyncCloud, syncing }: any) {
