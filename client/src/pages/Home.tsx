@@ -483,7 +483,6 @@ export default function Home() {
         onMinimize={() => setIsQuickSaleHome(false)}
         onAddProduct={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }}
         onAddClient={() => { setClientForm(emptyClient); setShowClientForm(true); }}
-        onFile={handleVcfFile}
       />
     ) : (
       <>
@@ -535,7 +534,6 @@ function QuickSaleHomeView({
   onMinimize,
   onAddProduct,
   onAddClient,
-  onFile,
 }: any) {
   const activeProducts = useMemo(() => {
     const q = vitrineSearch.trim().toLowerCase();
@@ -611,18 +609,6 @@ function QuickSaleHomeView({
           <button type="button" className="mini-icon-btn" onClick={onAddClient} title="Nova cliente">
             <UserPlus size={16} />
           </button>
-          <label className="mini-icon-btn" title="Importar contatos VCF" style={{ cursor: "pointer", margin: 0 }}>
-            <Upload size={16} />
-            <input
-              type="file"
-              accept=".vcf,text/vcard"
-              style={{ display: "none" }}
-              onChange={event => {
-                onFile?.(event.target.files?.[0]);
-                event.target.value = "";
-              }}
-            />
-          </label>
           <button type="button" className="mini-icon-btn accent" onClick={onMinimize} title="Diminuir / Painel completo">
             <Minimize2 size={16} />
           </button>

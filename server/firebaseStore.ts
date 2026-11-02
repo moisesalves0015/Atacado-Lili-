@@ -1,17 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import seedDbRaw from "../data/db.json";
 
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || "AIzaSyAIiafsVQkawBZrHVHDvoiZ72eTH0Cfb_U",
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "atacadolili.firebaseapp.com",
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "atacadolili",
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "atacadolili.firebasestorage.app",
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "294276300088",
-  appId: process.env.VITE_FIREBASE_APP_ID || "1:294276300088:web:1b1c6e19df185b104695cd",
-};
+const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || "atacadolili";
+const FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY || "AIzaSyAIiafsVQkawBZrHVHDvoiZ72eTH0Cfb_U";
+
+const FIRESTORE_BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/vendaatacado`;
 
 export interface LocalStoreData {
   updatedAt?: number;
@@ -121,15 +116,6 @@ let localUpdatedAt = 0;
 let lastCloudCheckAt = 0;
 let activeSyncPromise: Promise<void> | null = null;
 
-function getFirebaseDb() {
-  try {
-    const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-    return getFirestore(app);
-  } catch {
-    return null;
-  }
-}
-
 function embedLocalProductImages(data: LocalStoreData): boolean {
   let changed = false;
   for (const product of data.products) {
@@ -213,30 +199,6 @@ function reviveDates(raw: any): LocalStoreData {
     writeDisk(data);
   }
   return data;
-}
-
-function emptyStore(): LocalStoreData {
-  return {
-    updatedAt: 0,
-    counters: {
-      products: 0,
-      clients: 0,
-      orders: 0,
-      orderItems: 0,
-      payments: 0,
-      chargeTemplates: 0,
-      charges: 0,
-      auditLogs: 0,
-    },
-    products: [],
-    clients: [],
-    orders: [],
-    orderItems: [],
-    payments: [],
-    chargeTemplates: [],
-    charges: [],
-    auditLogs: [],
-  };
 }
 
 function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: LocalStoreData; changed: boolean } {
@@ -334,19 +296,23 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
 
 export function getStore(): LocalStoreData {
   if (!storeCache) {
+    // 1. Start from embedded seedDbRaw compiled directly into the bundle
+    const embeddedSeed = reviveDates(seedDbRaw);
+    storeCache = embeddedSeed;
+
+    // 2. Merge with disk file if present (e.g. local data/db.json or Vercel /tmp)
     try {
       if (fs.existsSync(DATA_FILE)) {
-        const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8"));
-        storeCache = reviveDates(parsed);
+        const diskData = reviveDates(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
+        storeCache = mergeStores(diskData, embeddedSeed).merged;
       } else if (fs.existsSync(BUNDLED_DATA_FILE)) {
-        const parsed = JSON.parse(fs.readFileSync(BUNDLED_DATA_FILE, "utf-8"));
-        storeCache = reviveDates(parsed);
-      } else {
-        storeCache = emptyStore();
+        const bundledData = reviveDates(JSON.parse(fs.readFileSync(BUNDLED_DATA_FILE, "utf-8")));
+        storeCache = mergeStores(bundledData, embeddedSeed).merged;
       }
     } catch {
-      storeCache = emptyStore();
+      // Keep embeddedSeed
     }
+
     localUpdatedAt = storeCache.updatedAt ?? 0;
   }
   return storeCache;
@@ -368,62 +334,90 @@ export async function ensureStoreLoaded(): Promise<LocalStoreData> {
   return storeCache ?? store;
 }
 
-async function pullRemoteFromFirestore(): Promise<LocalStoreData | null> {
-  const fdb = getFirebaseDb();
-  if (!fdb) return null;
-
-  const metaSnap = await Promise.race([
-    getDoc(doc(fdb, "vendaatacado", "meta")),
-    new Promise<null>(resolve => setTimeout(() => resolve(null), 3200)),
-  ]);
-
-  if (!metaSnap || !metaSnap.exists()) {
-    // Fallback to legacy single-doc "state" if present
-    const legacySnap = await Promise.race([
-      getDoc(doc(fdb, "vendaatacado", "state")),
-      new Promise<null>(resolve => setTimeout(() => resolve(null), 2000)),
-    ]);
-    if (legacySnap && legacySnap.exists() && legacySnap.data()?.json) {
-      return reviveDates(JSON.parse(legacySnap.data().json));
+async function firestoreGetDoc(docId: string, timeoutMs = 2500): Promise<Record<string, any> | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const fields = data?.fields;
+    if (!fields) return null;
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries<any>(fields)) {
+      if ("stringValue" in v) out[k] = v.stringValue;
+      else if ("integerValue" in v) out[k] = Number(v.integerValue);
+      else if ("doubleValue" in v) out[k] = Number(v.doubleValue);
+      else if ("booleanValue" in v) out[k] = Boolean(v.booleanValue);
     }
+    return out;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function firestoreSetDoc(docId: string, payload: Record<string, string | number>, timeoutMs = 4500): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const fields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(payload)) {
+      if (typeof v === "number") {
+        fields[k] = { integerValue: String(Math.trunc(v)) };
+      } else {
+        fields[k] = { stringValue: String(v) };
+      }
+    }
+    const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+      signal: controller.signal,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function pullRemoteFromFirestore(): Promise<LocalStoreData | null> {
+  const metaData = await firestoreGetDoc("meta", 2200);
+  if (!metaData) {
     return null;
   }
 
-  const metaData = metaSnap.data();
-  const remoteUpdatedAt = Number(metaData?.updatedAt || 0);
-
-  // If local cache already has the exact same cloud version, no need to re-download chunks
+  const remoteUpdatedAt = Number(metaData.updatedAt || 0);
   if (storeCache && localUpdatedAt > 0 && remoteUpdatedAt > 0 && remoteUpdatedAt === localUpdatedAt) {
     return storeCache;
   }
 
-  const baseRaw = metaData?.json ? JSON.parse(metaData.json) : {};
-  const productChunksCount = Number(metaData?.productChunksCount || 0);
-  const clientChunksCount = Number(metaData?.clientChunksCount || 0);
+  const baseRaw = metaData.json ? JSON.parse(metaData.json) : {};
+  const productChunksCount = Number(metaData.productChunksCount || 0);
+  const clientChunksCount = Number(metaData.clientChunksCount || 0);
 
-  const productPromises = Array.from({ length: productChunksCount }, (_, idx) =>
-    getDoc(doc(fdb, "vendaatacado", `products_${idx}`))
-  );
-  const clientPromises = Array.from({ length: clientChunksCount }, (_, idx) =>
-    getDoc(doc(fdb, "vendaatacado", `clients_${idx}`))
-  );
-
-  const [productSnaps, clientSnaps] = await Promise.all([
-    Promise.all(productPromises),
-    Promise.all(clientPromises),
+  const [productDocs, clientDocs] = await Promise.all([
+    Promise.all(Array.from({ length: productChunksCount }, (_, idx) => firestoreGetDoc(`products_${idx}`, 3000))),
+    Promise.all(Array.from({ length: clientChunksCount }, (_, idx) => firestoreGetDoc(`clients_${idx}`, 3000))),
   ]);
 
   const products: any[] = [];
-  for (const snap of productSnaps) {
-    if (snap.exists() && snap.data()?.json) {
-      products.push(...JSON.parse(snap.data().json));
+  for (const docItem of productDocs) {
+    if (docItem?.json) {
+      products.push(...JSON.parse(docItem.json));
     }
   }
 
   const clients: any[] = [];
-  for (const snap of clientSnaps) {
-    if (snap.exists() && snap.data()?.json) {
-      clients.push(...JSON.parse(snap.data().json));
+  for (const docItem of clientDocs) {
+    if (docItem?.json) {
+      clients.push(...JSON.parse(docItem.json));
     }
   }
 
@@ -441,7 +435,6 @@ async function syncWithFirestore(): Promise<void> {
     const remote = await pullRemoteFromFirestore();
 
     if (!remote) {
-      // Cloud is empty, push local store to Cloud if local has data
       if (local.products.length > 0 || local.clients.length > 0 || local.orders.length > 0) {
         await pushStoreToFirestore(local);
       }
@@ -452,13 +445,11 @@ async function syncWithFirestore(): Promise<void> {
       return;
     }
 
-    // Merge remote and local so no VCF contacts, products, or orders are ever lost
     const { merged, changed } = mergeStores(remote, local);
     storeCache = merged;
     localUpdatedAt = merged.updatedAt ?? Date.now();
     writeDisk(storeCache);
 
-    // If local had extra items (e.g., from localhost db.json) not yet in remote, push merged state to Cloud!
     if (
       changed &&
       (merged.products.length > remote.products.length ||
@@ -468,14 +459,11 @@ async function syncWithFirestore(): Promise<void> {
       await pushStoreToFirestore(storeCache);
     }
   } catch {
-    // Ignore offline/network errors; local cache stays active
+    // Keep local/embedded store active
   }
 }
 
 export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolean> {
-  const fdb = getFirebaseDb();
-  if (!fdb) return false;
-
   try {
     const now = Date.now();
     data.updatedAt = now;
@@ -495,11 +483,11 @@ export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolea
       clientChunks.push(data.clients.slice(i, i + CLIENT_CHUNK_SIZE));
     }
 
-    const writeOps: Array<Promise<void>> = [];
+    const writeOps: Array<Promise<boolean>> = [];
 
     for (let idx = 0; idx < productChunks.length; idx++) {
       writeOps.push(
-        setDoc(doc(fdb, "vendaatacado", `products_${idx}`), {
+        firestoreSetDoc(`products_${idx}`, {
           json: JSON.stringify(productChunks[idx]),
           updatedAt: now,
         })
@@ -508,7 +496,7 @@ export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolea
 
     for (let idx = 0; idx < clientChunks.length; idx++) {
       writeOps.push(
-        setDoc(doc(fdb, "vendaatacado", `clients_${idx}`), {
+        firestoreSetDoc(`clients_${idx}`, {
           json: JSON.stringify(clientChunks[idx]),
           updatedAt: now,
         })
@@ -526,7 +514,7 @@ export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolea
     };
 
     writeOps.push(
-      setDoc(doc(fdb, "vendaatacado", "meta"), {
+      firestoreSetDoc("meta", {
         updatedAt: now,
         productChunksCount: productChunks.length,
         clientChunksCount: clientChunks.length,
@@ -534,14 +522,9 @@ export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolea
       })
     );
 
-    await Promise.race([
-      Promise.all(writeOps),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timeout")), 6000)),
-    ]);
-
-    return true;
-  } catch (err) {
-    console.warn("[Store] Cloud sync warning:", err instanceof Error ? err.message : String(err));
+    const results = await Promise.all(writeOps);
+    return results.every(Boolean);
+  } catch {
     return false;
   }
 }
