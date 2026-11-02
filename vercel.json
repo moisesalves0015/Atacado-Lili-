@@ -3,6 +3,11 @@
   "installCommand": "npm install --legacy-peer-deps",
   "buildCommand": "npm run build:static",
   "outputDirectory": "dist/public",
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "data/db.json"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -18,4 +23,3 @@
     }
   ]
 }
-

@@ -24,6 +24,7 @@ import {
   listProducts,
   listTemplates,
   recordPayment,
+  syncLocalToCloud,
   updateClient,
   updateOrder,
   updateProduct,
@@ -136,6 +137,7 @@ export const appRouter = router({
 
   settings: router({
     audit: adminProcedure.query(() => getAuditLogs()),
+    syncCloud: adminProcedure.mutation(() => syncLocalToCloud()),
   }),
 });
 

@@ -15,7 +15,7 @@ build/
 # Vercel & runtime logs
 .vercel/
 .manus-logs/
-data/
+data/uploads/
 
 # IDE and editor files
 .vscode/

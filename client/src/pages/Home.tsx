@@ -228,6 +228,7 @@ export default function Home() {
   const createPayment = trpc.payments.create.useMutation();
   const createCharge = trpc.charges.create.useMutation();
   const updateTemplate = trpc.charges.updateTemplate.useMutation();
+  const syncCloud = trpc.settings.syncCloud.useMutation();
 
   useEffect(() => {
     const data: any = orderDetailQuery.data;
@@ -482,6 +483,7 @@ export default function Home() {
         onMinimize={() => setIsQuickSaleHome(false)}
         onAddProduct={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }}
         onAddClient={() => { setClientForm(emptyClient); setShowClientForm(true); }}
+        onFile={handleVcfFile}
       />
     ) : (
       <>
@@ -504,7 +506,7 @@ export default function Home() {
           {section === "charges" && <ChargesView charges={(chargesQuery.data ?? []) as any[]} templates={templates} onSaveTemplate={(id: number, body: string) => run(() => updateTemplate.mutateAsync({ id, body }), "Modelo atualizado")} onOpenOrder={setSelectedOrderId} onCharge={openCharge} />}
           {section === "finance" && <FinanceView orders={orders} onOpen={setSelectedOrderId} onCharge={openCharge} />}
           {section === "reports" && <ReportsView products={products} productId={reportProductId} setProductId={setReportProductId} rows={(reportsQuery.data ?? []) as any[]} text={reportText} loading={reportsQuery.isLoading} />}
-          {section === "settings" && <SettingsView user={user} audit={(auditQuery.data ?? []) as any[]} onExport={() => downloadText("backup-venda-atacado.json", JSON.stringify({ exportedAt: new Date().toISOString(), dashboard: dashboard ?? null, products, clients, orders }, null, 2), "application/json;charset=utf-8")} />}
+          {section === "settings" && <SettingsView user={user} audit={(auditQuery.data ?? []) as any[]} syncing={syncCloud.isPending} onSyncCloud={() => run(async () => { const res = await syncCloud.mutateAsync(); toast.success(`Sincronizado: ${res.products} produtos, ${res.clients} clientes e ${res.orders} pedidos!`); }, "Banco sincronizado com a nuvem")} onExport={() => downloadText("backup-venda-atacado.json", JSON.stringify({ exportedAt: new Date().toISOString(), dashboard: dashboard ?? null, products, clients, orders }, null, 2), "application/json;charset=utf-8")} />}
         </main>
       </>
     )}
@@ -533,6 +535,7 @@ function QuickSaleHomeView({
   onMinimize,
   onAddProduct,
   onAddClient,
+  onFile,
 }: any) {
   const activeProducts = useMemo(() => {
     const q = vitrineSearch.trim().toLowerCase();
@@ -608,6 +611,18 @@ function QuickSaleHomeView({
           <button type="button" className="mini-icon-btn" onClick={onAddClient} title="Nova cliente">
             <UserPlus size={16} />
           </button>
+          <label className="mini-icon-btn" title="Importar contatos VCF" style={{ cursor: "pointer", margin: 0 }}>
+            <Upload size={16} />
+            <input
+              type="file"
+              accept=".vcf,text/vcard"
+              style={{ display: "none" }}
+              onChange={event => {
+                onFile?.(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+          </label>
           <button type="button" className="mini-icon-btn accent" onClick={onMinimize} title="Diminuir / Painel completo">
             <Minimize2 size={16} />
           </button>
@@ -830,8 +845,8 @@ function ReportsView({ products, productId, setProductId, rows, text, loading }:
   return <div className="content-stack"><SectionHeader eyebrow="para enviar às chefes" title="Relatórios" description="Escolha um produto ou veja o consolidado geral. O texto sai no mesmo padrão que você já usa." /><section className="report-builder"><div className="report-filters"><label>Produto<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">Todos os produtos</option>{products.map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label></div><div className="report-summary"><span><strong>{rows.length}</strong> linhas de venda</span><span><strong>{rows.reduce((sum: number, row: any) => sum + row.quantity, 0)}</strong> peças</span><span><strong>{formatMoney(rows.reduce((sum: number, row: any) => sum + row.totalCents, 0))}</strong> total</span></div></section><section className="report-layout"><div className="panel report-preview-panel"><div className="panel-heading"><div><div className="eyebrow">prévia em texto</div><h3>Relatório pronto</h3></div><div className="report-actions"><Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(text).then(() => toast.success("Relatório copiado"))}><Copy size={14} /> Copiar</Button><Button variant="outline" size="sm" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer")}><MessageCircle size={14} /> WhatsApp</Button></div></div>{loading ? <div className="loading-panel"><RefreshCw className="spin" size={18} /> Gerando relatório...</div> : <pre className="report-preview">{rows.length ? text : "Selecione um produto ou registre pedidos para gerar o relatório."}</pre>}<div className="report-footer-actions"><Button onClick={() => downloadText("relatorio-venda-atacado.txt", text)} disabled={!rows.length}><Download size={15} /> Baixar TXT</Button><Button variant="outline" onClick={() => window.print()} disabled={!rows.length}><FileText size={15} /> Gerar PDF</Button><Button variant="outline" onClick={() => downloadText("relatorio-venda-atacado.csv", csvFromRows(rows), "text/csv;charset=utf-8")} disabled={!rows.length}><Download size={15} /> Exportar Excel</Button></div></div><aside className="report-note"><div className="note-icon"><FileText size={18} /></div><strong>Formato preservado</strong><p>O nome e quantidade ficam juntos na primeira linha. O telefone entra na linha seguinte, com blocos separados por uma linha em branco.</p><span>Cancelados ficam fora por padrão.</span></aside></section></div>;
 }
 
-function SettingsView({ user, audit, onExport }: any) {
-  return <div className="content-stack"><SectionHeader eyebrow="administração principal" title="Configurações" description="Acesso total, histórico de alterações e exportação dos dados da operação." /><div className="settings-grid"><section className="panel"><div className="panel-heading"><div><div className="eyebrow">perfil atual</div><h3>Administradora</h3></div><span className="admin-pill">acesso total</span></div><div className="profile-box"><div className="avatar large">{(user.name ?? "A").charAt(0)}</div><div><strong>{user.name ?? "Administradora"}</strong><span>{user.email ?? "Conta Manus autenticada"}</span><small>Usuário autorizado pelo fluxo de autenticação do projeto.</small></div></div><div className="settings-actions"><Button onClick={onExport}><Download size={16} /> Exportar cópia JSON</Button><p>Esta exportação reúne os dados carregados nesta sessão em formato legível. Guarde-a em local seguro; o backup integral e a restauração podem ser ampliados em uma próxima etapa.</p></div></section><section className="panel"><div className="panel-heading"><div><div className="eyebrow">rastro de segurança</div><h3>Últimas alterações</h3></div></div>{audit.length ? <div className="audit-list">{audit.slice(0, 10).map((entry: any) => <div key={entry.id}><span className="audit-dot" /><div><strong>{entry.action} · {entry.entityType}</strong><small>{formatDateTime(entry.createdAt)} · registro {entry.entityId}</small></div></div>)}</div> : <EmptyState icon={Archive} title="Nenhuma alteração registrada" description="As ações administrativas aparecerão aqui conforme você usar o sistema." />}</section></div><section className="security-callout"><Settings size={18} /><div><strong>Segurança e integrações</strong><p>Este projeto usa autenticação da plataforma e banco persistente gerenciado. Fotos e a API oficial do WhatsApp Business ficam preparados para configuração futura; abrir o WhatsApp não marca uma mensagem como enviada.</p></div></section></div>;
+function SettingsView({ user, audit, onExport, onSyncCloud, syncing }: any) {
+  return <div className="content-stack"><SectionHeader eyebrow="administração principal" title="Configurações" description="Acesso total, sincronização em nuvem entre aparelhos e exportação dos dados da operação." /><div className="settings-grid"><section className="panel"><div className="panel-heading"><div><div className="eyebrow">perfil atual</div><h3>Administradora</h3></div><span className="admin-pill">acesso total</span></div><div className="profile-box"><div className="avatar large">{(user.name ?? "A").charAt(0)}</div><div><strong>{user.name ?? "Administradora"}</strong><span>{user.email ?? "Conta Administradora"}</span><small>Dados compartilhados em todos os aparelhos conectados.</small></div></div><div className="settings-actions" style={{ display: "grid", gap: "10px" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}><Button onClick={onSyncCloud} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""} /> {syncing ? "Sincronizando..." : "Empurrar dados para o Banco (Nuvem)"}</Button><Button variant="outline" onClick={onExport}><Download size={16} /> Exportar cópia JSON</Button></div><p>Todos os produtos, contatos VCF e pedidos criados são salvos diretamente no banco em nuvem e ficam disponíveis em qualquer celular ou computador logado.</p></div></section><section className="panel"><div className="panel-heading"><div><div className="eyebrow">rastro de segurança</div><h3>Últimas alterações</h3></div></div>{audit.length ? <div className="audit-list">{audit.slice(0, 10).map((entry: any) => <div key={entry.id}><span className="audit-dot" /><div><strong>{entry.action} · {entry.entityType}</strong><small>{formatDateTime(entry.createdAt)} · registro {entry.entityId}</small></div></div>)}</div> : <EmptyState icon={Archive} title="Nenhuma alteração registrada" description="As ações administrativas aparecerão aqui conforme você usar o sistema." />}</section></div><section className="security-callout"><Settings size={18} /><div><strong>Sincronização Multi-Aparelho</strong><p>Qualquer contato VCF anexado, cliente cadastrada ou produto adicionado é salvo automaticamente no banco de dados e aparece em todos os aparelhos logados.</p></div></section></div>;
 }
 
 function SectionHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {

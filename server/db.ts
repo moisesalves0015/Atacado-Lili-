@@ -14,7 +14,7 @@ import {
   type InsertUser,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { getStore, saveStore } from "./firebaseStore";
+import { getStore, pushStoreToFirestore, saveStore } from "./firebaseStore";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -259,7 +259,7 @@ export async function createProduct(actorUserId: number, input: { name: string; 
       updatedAt: now,
     });
     await writeAudit(null, actorUserId, "create", "product", String(id), { name: input.name });
-    saveStore();
+    await saveStore();
     return { id };
   }
   const [result] = await db.insert(products).values({
@@ -288,7 +288,7 @@ export async function updateProduct(actorUserId: number, id: number, input: { na
     if (input.active !== undefined) product.active = input.active;
     product.updatedAt = new Date();
     await writeAudit(null, actorUserId, "update", "product", String(id), input);
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   await db.update(products).set({
@@ -339,7 +339,7 @@ export async function createClient(actorUserId: number, input: { name: string; p
       updatedAt: now,
     });
     await writeAudit(null, actorUserId, "create", "client", String(id), { name: input.name });
-    saveStore();
+    await saveStore();
     return { id };
   }
   const duplicate = await db.select({ id: clients.id }).from(clients).where(eq(clients.phoneNormalized, phoneNormalized)).limit(1);
@@ -388,7 +388,7 @@ export async function importClients(actorUserId: number, input: Array<{ name: st
     }
     if (imported > 0) {
       await writeAudit(null, actorUserId, "import", "client", "bulk", { imported, duplicates, invalid });
-      saveStore();
+      await saveStore();
     }
     return { imported, duplicates, invalid };
   }
@@ -430,7 +430,7 @@ export async function updateClient(actorUserId: number, id: number, input: { nam
     if (input.active !== undefined) client.active = input.active;
     client.updatedAt = new Date();
     await writeAudit(null, actorUserId, "update", "client", String(id), input);
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   const values: Record<string, unknown> = {};
@@ -560,7 +560,7 @@ export async function createOrder(actorUserId: number, input: { clientId: number
       });
     }
     await writeAudit(null, actorUserId, "create", "order", String(orderId), { code, totalCents, itemCount: normalizedItems.length });
-    saveStore();
+    await saveStore();
     return { id: orderId, code };
   }
 
@@ -636,7 +636,7 @@ export async function updateOrder(actorUserId: number, orderId: number, input: {
       });
     }
     await writeAudit(null, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length });
-    saveStore();
+    await saveStore();
     return { ok: true, totalCents, status };
   }
 
@@ -728,7 +728,7 @@ export async function recordPayment(actorUserId: number, input: { orderId: numbe
     order.status = status;
     order.updatedAt = now;
     await writeAudit(null, actorUserId, "create", "payment", String(paymentId), { orderId: input.orderId, amountCents: input.amountCents });
-    saveStore();
+    await saveStore();
     return { paidCents, status };
   }
   const orderRows = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
@@ -757,7 +757,7 @@ export async function cancelOrder(actorUserId: number, orderId: number) {
       order.updatedAt = new Date();
     }
     await writeAudit(null, actorUserId, "cancel", "order", String(orderId));
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   await db.update(orders).set({ status: "cancelled" }).where(eq(orders.id, orderId));
@@ -905,7 +905,7 @@ export async function listTemplates() {
           updatedAt: now,
         });
       }
-      saveStore();
+      await saveStore();
     }
     return [...store.chargeTemplates].sort((a, b) => a.id - b.id);
   }
@@ -925,7 +925,7 @@ export async function updateTemplate(actorUserId: number, id: number, body: stri
       tpl.updatedAt = new Date();
     }
     await writeAudit(null, actorUserId, "update", "charge_template", String(id));
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   await db.update(chargeTemplates).set({ body: body.trim() }).where(eq(chargeTemplates.id, id));
@@ -972,7 +972,7 @@ export async function createCharge(actorUserId: number, input: { orderId: number
       createdAt: new Date(),
     });
     await writeAudit(null, actorUserId, "create", "charge", String(id), { orderId: input.orderId, action: input.action });
-    saveStore();
+    await saveStore();
     return { id };
   }
   const orderRows = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
@@ -1053,4 +1053,15 @@ export async function getAuditLogs() {
     return store.auditLogs.slice(0, 100);
   }
   return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(100);
+}
+
+export async function syncLocalToCloud() {
+  const store = getStore();
+  const ok = await pushStoreToFirestore(store);
+  return {
+    ok,
+    products: store.products.length,
+    clients: store.clients.length,
+    orders: store.orders.length,
+  };
 }

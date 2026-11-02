@@ -41,19 +41,21 @@ export function createApp() {
         return;
       }
 
-      // On Vercel serverless, ephemeral disk files do not persist across instances,
-      // so return the compressed dataUrl directly to persist inside the database/Firestore.
-      if (process.env.VERCEL) {
-        res.json({ url: dataUrl });
-        return;
+      if (!process.env.VERCEL) {
+        try {
+          const extFromName = fileName?.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const ext = extFromName || (match[1] === "jpeg" ? "jpg" : match[1]) || "jpg";
+          const safeName = `${crypto.randomUUID()}.${ext}`;
+          const filePath = path.join(UPLOADS_DIR, safeName);
+          fs.writeFileSync(filePath, Buffer.from(match[2], "base64"));
+        } catch {
+          // Ignore optional local backup write failure
+        }
       }
 
-      const extFromName = fileName?.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const ext = extFromName || (match[1] === "jpeg" ? "jpg" : match[1]) || "jpg";
-      const safeName = `${crypto.randomUUID()}.${ext}`;
-      const filePath = path.join(UPLOADS_DIR, safeName);
-      fs.writeFileSync(filePath, Buffer.from(match[2], "base64"));
-      res.json({ url: `/uploads/${safeName}` });
+      // Always return the compressed dataUrl so the image is persisted in the database
+      // and immediately visible across all logged-in devices (PC, PWA, Vercel).
+      res.json({ url: dataUrl });
     } catch (err) {
       console.error("[Upload] Failed to save image:", err);
       res.status(500).json({ error: "Falha ao salvar imagem" });

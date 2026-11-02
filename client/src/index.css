@@ -293,13 +293,13 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 }
 
 .quick-home-header {
-  height: 46px;
-  flex: 0 0 46px;
+  min-height: calc(50px + env(safe-area-inset-top, 0px));
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 0 14px;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
@@ -720,9 +720,19 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
 }
 
 @media (max-width: 760px) {
+  .quick-home-header {
+    padding-top: max(22px, calc(env(safe-area-inset-top, 0px) + 12px));
+    padding-bottom: 8px;
+  }
+  .topbar {
+    padding-top: max(18px, calc(env(safe-area-inset-top, 0px) + 10px));
+  }
+  .sidebar {
+    padding-top: max(28px, calc(env(safe-area-inset-top, 0px) + 16px));
+  }
   .quick-home-body {
     gap: 8px;
-    padding: 8px 10px;
+    padding: 8px 10px max(10px, calc(env(safe-area-inset-bottom, 0px) + 8px));
   }
   .quick-vitrine-section {
     height: 206px;
@@ -731,5 +741,22 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
   .vitrine-grid {
     grid-auto-columns: 102px;
     gap: 6px;
+  }
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .quick-home-header {
+    padding-top: max(34px, calc(env(safe-area-inset-top, 24px) + 12px));
+    padding-bottom: 8px;
+  }
+  .topbar {
+    padding-top: max(30px, calc(env(safe-area-inset-top, 24px) + 10px));
+  }
+  .sidebar,
+  .drawer-card {
+    padding-top: max(34px, calc(env(safe-area-inset-top, 24px) + 14px));
+  }
+  .quick-home-body {
+    padding-bottom: max(12px, calc(env(safe-area-inset-bottom, 8px) + 8px));
   }
 }

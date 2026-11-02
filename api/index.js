@@ -243,10 +243,15 @@ var firebaseConfig = {
 };
 var BUNDLED_DATA_DIR = path.resolve(process.cwd(), "data");
 var BUNDLED_DATA_FILE = path.join(BUNDLED_DATA_DIR, "db.json");
+var BUNDLED_UPLOADS_DIR = path.join(BUNDLED_DATA_DIR, "uploads");
 var DATA_DIR = process.env.VERCEL ? path.join(os.tmpdir(), "vendaatacado-data") : BUNDLED_DATA_DIR;
 var DATA_FILE = path.join(DATA_DIR, "db.json");
+var PRODUCT_CHUNK_SIZE = 1;
+var CLIENT_CHUNK_SIZE = 600;
 var storeCache = null;
-var firestoreSyncPromise = null;
+var localUpdatedAt = 0;
+var lastCloudCheckAt = 0;
+var activeSyncPromise = null;
 function getFirebaseDb() {
   try {
     const app2 = getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -255,10 +260,31 @@ function getFirebaseDb() {
     return null;
   }
 }
+function embedLocalProductImages(data) {
+  let changed = false;
+  for (const product of data.products) {
+    if (product.imageUrl && product.imageUrl.startsWith("/uploads/")) {
+      const fileName = product.imageUrl.replace("/uploads/", "");
+      const candidatePath = path.join(BUNDLED_UPLOADS_DIR, fileName);
+      try {
+        if (fs.existsSync(candidatePath)) {
+          const ext = path.extname(fileName).toLowerCase().replace(".", "") || "jpeg";
+          const mime = ext === "jpg" ? "jpeg" : ext;
+          const b64 = fs.readFileSync(candidatePath).toString("base64");
+          product.imageUrl = `data:image/${mime};base64,${b64}`;
+          changed = true;
+        }
+      } catch {
+      }
+    }
+  }
+  return changed;
+}
 function reviveDates(raw) {
   const toDate = (v) => v ? new Date(v) : /* @__PURE__ */ new Date();
   const toNullableDate = (v) => v ? new Date(v) : null;
-  return {
+  const data = {
+    updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
     counters: {
       products: raw?.counters?.products ?? 0,
       clients: raw?.counters?.clients ?? 0,
@@ -309,9 +335,14 @@ function reviveDates(raw) {
       createdAt: toDate(a.createdAt)
     }))
   };
+  if (embedLocalProductImages(data) && !process.env.VERCEL) {
+    writeDisk(data);
+  }
+  return data;
 }
 function emptyStore() {
   return {
+    updatedAt: 0,
     counters: {
       products: 0,
       clients: 0,
@@ -332,6 +363,90 @@ function emptyStore() {
     auditLogs: []
   };
 }
+function mergeStores(base, incoming) {
+  let changed = false;
+  const productMap = /* @__PURE__ */ new Map();
+  for (const p of base.products) productMap.set(p.id, p);
+  for (const p of incoming.products) {
+    const existing = productMap.get(p.id);
+    if (!existing) {
+      productMap.set(p.id, p);
+      changed = true;
+    } else if (p.updatedAt.getTime() > existing.updatedAt.getTime() || !existing.imageUrl && p.imageUrl) {
+      productMap.set(p.id, p);
+      changed = true;
+    }
+  }
+  const clientMap = /* @__PURE__ */ new Map();
+  const phoneSet = /* @__PURE__ */ new Set();
+  for (const c of base.clients) {
+    clientMap.set(c.id, c);
+    if (c.phoneNormalized) phoneSet.add(c.phoneNormalized);
+  }
+  for (const c of incoming.clients) {
+    const existing = clientMap.get(c.id);
+    if (!existing && (!c.phoneNormalized || !phoneSet.has(c.phoneNormalized))) {
+      clientMap.set(c.id, c);
+      if (c.phoneNormalized) phoneSet.add(c.phoneNormalized);
+      changed = true;
+    } else if (existing && c.updatedAt.getTime() > existing.updatedAt.getTime()) {
+      clientMap.set(c.id, c);
+      changed = true;
+    }
+  }
+  const orderMap = /* @__PURE__ */ new Map();
+  for (const o of base.orders) orderMap.set(o.id, o);
+  for (const o of incoming.orders) {
+    const existing = orderMap.get(o.id);
+    if (!existing || o.updatedAt.getTime() > existing.updatedAt.getTime()) {
+      orderMap.set(o.id, o);
+      if (!existing) changed = true;
+    }
+  }
+  const itemMap = /* @__PURE__ */ new Map();
+  for (const i of base.orderItems) itemMap.set(i.id, i);
+  for (const i of incoming.orderItems) {
+    if (!itemMap.has(i.id)) {
+      itemMap.set(i.id, i);
+      changed = true;
+    }
+  }
+  const paymentMap = /* @__PURE__ */ new Map();
+  for (const p of base.payments) paymentMap.set(p.id, p);
+  for (const p of incoming.payments) {
+    if (!paymentMap.has(p.id)) {
+      paymentMap.set(p.id, p);
+      changed = true;
+    }
+  }
+  const products2 = Array.from(productMap.values()).sort((a, b) => b.id - a.id);
+  const clients2 = Array.from(clientMap.values()).sort((a, b) => a.id - b.id);
+  const orders2 = Array.from(orderMap.values()).sort((a, b) => b.id - a.id);
+  const orderItems2 = Array.from(itemMap.values());
+  const payments2 = Array.from(paymentMap.values());
+  const merged = {
+    updatedAt: Math.max(base.updatedAt ?? 0, incoming.updatedAt ?? 0),
+    counters: {
+      products: Math.max(base.counters.products, incoming.counters.products, ...products2.map((p) => p.id), 0),
+      clients: Math.max(base.counters.clients, incoming.counters.clients, ...clients2.map((c) => c.id), 0),
+      orders: Math.max(base.counters.orders, incoming.counters.orders, ...orders2.map((o) => o.id), 0),
+      orderItems: Math.max(base.counters.orderItems, incoming.counters.orderItems, ...orderItems2.map((i) => i.id), 0),
+      payments: Math.max(base.counters.payments, incoming.counters.payments, ...payments2.map((p) => p.id), 0),
+      chargeTemplates: Math.max(base.counters.chargeTemplates, incoming.counters.chargeTemplates),
+      charges: Math.max(base.counters.charges, incoming.counters.charges),
+      auditLogs: Math.max(base.counters.auditLogs, incoming.counters.auditLogs)
+    },
+    products: products2,
+    clients: clients2,
+    orders: orders2,
+    orderItems: orderItems2,
+    payments: payments2,
+    chargeTemplates: base.chargeTemplates.length >= incoming.chargeTemplates.length ? base.chargeTemplates : incoming.chargeTemplates,
+    charges: base.charges.length >= incoming.charges.length ? base.charges : incoming.charges,
+    auditLogs: (base.auditLogs.length >= incoming.auditLogs.length ? base.auditLogs : incoming.auditLogs).slice(0, 100)
+  };
+  return { merged, changed };
+}
 function getStore() {
   if (!storeCache) {
     try {
@@ -347,38 +462,164 @@ function getStore() {
     } catch {
       storeCache = emptyStore();
     }
-    if (!firestoreSyncPromise) {
-      firestoreSyncPromise = pullFromFirestoreIfEmpty();
-    }
+    localUpdatedAt = storeCache.updatedAt ?? 0;
   }
   return storeCache;
 }
 async function ensureStoreLoaded() {
   const store = getStore();
-  if (firestoreSyncPromise) {
-    await firestoreSyncPromise;
+  const now = Date.now();
+  if (now - lastCloudCheckAt < 1500 && !activeSyncPromise) {
+    return storeCache ?? store;
   }
+  if (!activeSyncPromise) {
+    lastCloudCheckAt = now;
+    activeSyncPromise = syncWithFirestore().finally(() => {
+      activeSyncPromise = null;
+    });
+  }
+  await activeSyncPromise;
   return storeCache ?? store;
 }
-async function pullFromFirestoreIfEmpty() {
-  if (!storeCache) return;
-  const isEmpty = storeCache.products.length === 0 && storeCache.clients.length === 0 && storeCache.orders.length === 0;
-  if (!isEmpty) return;
+async function pullRemoteFromFirestore() {
   const fdb = getFirebaseDb();
-  if (!fdb) return;
-  try {
-    const snap = await Promise.race([
+  if (!fdb) return null;
+  const metaSnap = await Promise.race([
+    getDoc(doc(fdb, "vendaatacado", "meta")),
+    new Promise((resolve) => setTimeout(() => resolve(null), 3200))
+  ]);
+  if (!metaSnap || !metaSnap.exists()) {
+    const legacySnap = await Promise.race([
       getDoc(doc(fdb, "vendaatacado", "state")),
-      new Promise((resolve) => setTimeout(() => resolve(null), 2500))
+      new Promise((resolve) => setTimeout(() => resolve(null), 2e3))
     ]);
-    if (snap && snap.exists() && snap.data()?.json) {
-      const remote = reviveDates(JSON.parse(snap.data().json));
-      if (remote.products.length > 0 || remote.clients.length > 0 || remote.orders.length > 0) {
-        storeCache = remote;
-        writeDisk(storeCache);
+    if (legacySnap && legacySnap.exists() && legacySnap.data()?.json) {
+      return reviveDates(JSON.parse(legacySnap.data().json));
+    }
+    return null;
+  }
+  const metaData = metaSnap.data();
+  const remoteUpdatedAt = Number(metaData?.updatedAt || 0);
+  if (storeCache && localUpdatedAt > 0 && remoteUpdatedAt > 0 && remoteUpdatedAt === localUpdatedAt) {
+    return storeCache;
+  }
+  const baseRaw = metaData?.json ? JSON.parse(metaData.json) : {};
+  const productChunksCount = Number(metaData?.productChunksCount || 0);
+  const clientChunksCount = Number(metaData?.clientChunksCount || 0);
+  const productPromises = Array.from(
+    { length: productChunksCount },
+    (_, idx) => getDoc(doc(fdb, "vendaatacado", `products_${idx}`))
+  );
+  const clientPromises = Array.from(
+    { length: clientChunksCount },
+    (_, idx) => getDoc(doc(fdb, "vendaatacado", `clients_${idx}`))
+  );
+  const [productSnaps, clientSnaps] = await Promise.all([
+    Promise.all(productPromises),
+    Promise.all(clientPromises)
+  ]);
+  const products2 = [];
+  for (const snap of productSnaps) {
+    if (snap.exists() && snap.data()?.json) {
+      products2.push(...JSON.parse(snap.data().json));
+    }
+  }
+  const clients2 = [];
+  for (const snap of clientSnaps) {
+    if (snap.exists() && snap.data()?.json) {
+      clients2.push(...JSON.parse(snap.data().json));
+    }
+  }
+  return reviveDates({
+    ...baseRaw,
+    updatedAt: remoteUpdatedAt,
+    products: products2,
+    clients: clients2
+  });
+}
+async function syncWithFirestore() {
+  try {
+    const local = getStore();
+    const remote = await pullRemoteFromFirestore();
+    if (!remote) {
+      if (local.products.length > 0 || local.clients.length > 0 || local.orders.length > 0) {
+        await pushStoreToFirestore(local);
       }
+      return;
+    }
+    if (remote === storeCache) {
+      return;
+    }
+    const { merged, changed } = mergeStores(remote, local);
+    storeCache = merged;
+    localUpdatedAt = merged.updatedAt ?? Date.now();
+    writeDisk(storeCache);
+    if (changed && (merged.products.length > remote.products.length || merged.clients.length > remote.clients.length || merged.orders.length > remote.orders.length)) {
+      await pushStoreToFirestore(storeCache);
     }
   } catch {
+  }
+}
+async function pushStoreToFirestore(data) {
+  const fdb = getFirebaseDb();
+  if (!fdb) return false;
+  try {
+    const now = Date.now();
+    data.updatedAt = now;
+    localUpdatedAt = now;
+    if (data.auditLogs.length > 100) {
+      data.auditLogs = data.auditLogs.slice(0, 100);
+    }
+    const productChunks = [];
+    for (let i = 0; i < data.products.length; i += PRODUCT_CHUNK_SIZE) {
+      productChunks.push(data.products.slice(i, i + PRODUCT_CHUNK_SIZE));
+    }
+    const clientChunks = [];
+    for (let i = 0; i < data.clients.length; i += CLIENT_CHUNK_SIZE) {
+      clientChunks.push(data.clients.slice(i, i + CLIENT_CHUNK_SIZE));
+    }
+    const writeOps = [];
+    for (let idx = 0; idx < productChunks.length; idx++) {
+      writeOps.push(
+        setDoc(doc(fdb, "vendaatacado", `products_${idx}`), {
+          json: JSON.stringify(productChunks[idx]),
+          updatedAt: now
+        })
+      );
+    }
+    for (let idx = 0; idx < clientChunks.length; idx++) {
+      writeOps.push(
+        setDoc(doc(fdb, "vendaatacado", `clients_${idx}`), {
+          json: JSON.stringify(clientChunks[idx]),
+          updatedAt: now
+        })
+      );
+    }
+    const metaPayload = {
+      counters: data.counters,
+      orders: data.orders,
+      orderItems: data.orderItems,
+      payments: data.payments,
+      chargeTemplates: data.chargeTemplates,
+      charges: data.charges,
+      auditLogs: data.auditLogs
+    };
+    writeOps.push(
+      setDoc(doc(fdb, "vendaatacado", "meta"), {
+        updatedAt: now,
+        productChunksCount: productChunks.length,
+        clientChunksCount: clientChunks.length,
+        json: JSON.stringify(metaPayload)
+      })
+    );
+    await Promise.race([
+      Promise.all(writeOps),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timeout")), 6e3))
+    ]);
+    return true;
+  } catch (err) {
+    console.warn("[Store] Cloud sync warning:", err instanceof Error ? err.message : String(err));
+    return false;
   }
 }
 function writeDisk(data) {
@@ -391,21 +632,15 @@ function writeDisk(data) {
     console.warn("[Store] Failed to write local database file:", err);
   }
 }
-function saveStore() {
+async function saveStore() {
   if (!storeCache) return;
+  storeCache.updatedAt = Date.now();
+  localUpdatedAt = storeCache.updatedAt;
   if (storeCache.auditLogs.length > 100) {
     storeCache.auditLogs = storeCache.auditLogs.slice(0, 100);
   }
   writeDisk(storeCache);
-  const fdb = getFirebaseDb();
-  if (fdb) {
-    const serialized = JSON.stringify(storeCache);
-    setDoc(doc(fdb, "vendaatacado", "state"), {
-      json: serialized,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    }).catch(() => {
-    });
-  }
+  await pushStoreToFirestore(storeCache);
 }
 
 // server/db.ts
@@ -618,7 +853,7 @@ async function createProduct(actorUserId, input) {
       updatedAt: now
     });
     await writeAudit(null, actorUserId, "create", "product", String(id2), { name: input.name });
-    saveStore();
+    await saveStore();
     return { id: id2 };
   }
   const [result] = await db.insert(products).values({
@@ -646,7 +881,7 @@ async function updateProduct(actorUserId, id, input) {
     if (input.active !== void 0) product.active = input.active;
     product.updatedAt = /* @__PURE__ */ new Date();
     await writeAudit(null, actorUserId, "update", "product", String(id), input);
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   await db.update(products).set({
@@ -693,7 +928,7 @@ async function createClient(actorUserId, input) {
       updatedAt: now
     });
     await writeAudit(null, actorUserId, "create", "client", String(id2), { name: input.name });
-    saveStore();
+    await saveStore();
     return { id: id2 };
   }
   const duplicate = await db.select({ id: clients.id }).from(clients).where(eq(clients.phoneNormalized, phoneNormalized)).limit(1);
@@ -741,7 +976,7 @@ async function importClients(actorUserId, input) {
     }
     if (imported > 0) {
       await writeAudit(null, actorUserId, "import", "client", "bulk", { imported, duplicates: duplicates2, invalid: invalid2 });
-      saveStore();
+      await saveStore();
     }
     return { imported, duplicates: duplicates2, invalid: invalid2 };
   }
@@ -780,7 +1015,7 @@ async function updateClient(actorUserId, id, input) {
     if (input.active !== void 0) client.active = input.active;
     client.updatedAt = /* @__PURE__ */ new Date();
     await writeAudit(null, actorUserId, "update", "client", String(id), input);
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   const values = {};
@@ -900,7 +1135,7 @@ async function createOrder(actorUserId, input) {
       });
     }
     await writeAudit(null, actorUserId, "create", "order", String(orderId), { code: code2, totalCents: totalCents2, itemCount: normalizedItems2.length });
-    saveStore();
+    await saveStore();
     return { id: orderId, code: code2 };
   }
   const productIds = [...new Set(input.items.map((item) => item.productId))];
@@ -973,7 +1208,7 @@ async function updateOrder(actorUserId, orderId, input) {
       });
     }
     await writeAudit(null, actorUserId, "update", "order", String(orderId), { totalCents: totalCents2, itemCount: normalizedItems2.length });
-    saveStore();
+    await saveStore();
     return { ok: true, totalCents: totalCents2, status: status2 };
   }
   const existingRows = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
@@ -1058,7 +1293,7 @@ async function recordPayment(actorUserId, input) {
     order2.status = status2;
     order2.updatedAt = now;
     await writeAudit(null, actorUserId, "create", "payment", String(paymentId), { orderId: input.orderId, amountCents: input.amountCents });
-    saveStore();
+    await saveStore();
     return { paidCents: paidCents2, status: status2 };
   }
   const orderRows = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
@@ -1086,7 +1321,7 @@ async function cancelOrder(actorUserId, orderId) {
       order.updatedAt = /* @__PURE__ */ new Date();
     }
     await writeAudit(null, actorUserId, "cancel", "order", String(orderId));
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   await db.update(orders).set({ status: "cancelled" }).where(eq(orders.id, orderId));
@@ -1225,7 +1460,7 @@ async function listTemplates() {
           updatedAt: now
         });
       }
-      saveStore();
+      await saveStore();
     }
     return [...store.chargeTemplates].sort((a, b) => a.id - b.id);
   }
@@ -1244,7 +1479,7 @@ async function updateTemplate(actorUserId, id, body) {
       tpl.updatedAt = /* @__PURE__ */ new Date();
     }
     await writeAudit(null, actorUserId, "update", "charge_template", String(id));
-    saveStore();
+    await saveStore();
     return { ok: true };
   }
   await db.update(chargeTemplates).set({ body: body.trim() }).where(eq(chargeTemplates.id, id));
@@ -1286,7 +1521,7 @@ async function createCharge(actorUserId, input) {
       createdAt: /* @__PURE__ */ new Date()
     });
     await writeAudit(null, actorUserId, "create", "charge", String(id), { orderId: input.orderId, action: input.action });
-    saveStore();
+    await saveStore();
     return { id };
   }
   const orderRows = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
@@ -1358,6 +1593,16 @@ async function getAuditLogs() {
     return store.auditLogs.slice(0, 100);
   }
   return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(100);
+}
+async function syncLocalToCloud() {
+  const store = getStore();
+  const ok = await pushStoreToFirestore(store);
+  return {
+    ok,
+    products: store.products.length,
+    clients: store.clients.length,
+    orders: store.orders.length
+  };
 }
 
 // server/_core/cookies.ts
@@ -1945,7 +2190,8 @@ var appRouter = router({
     rows: adminProcedure.input(z2.object({ productId: z2.number().int().positive().optional(), from: z2.string().optional(), to: z2.string().optional(), orderIds: z2.array(z2.number().int().positive()).optional() })).query(({ input }) => getReportRows(input))
   }),
   settings: router({
-    audit: adminProcedure.query(() => getAuditLogs())
+    audit: adminProcedure.query(() => getAuditLogs()),
+    syncCloud: adminProcedure.mutation(() => syncLocalToCloud())
   })
 });
 
@@ -1990,16 +2236,17 @@ function createApp() {
         res.status(400).json({ error: "Formato de imagem inv\xE1lido" });
         return;
       }
-      if (process.env.VERCEL) {
-        res.json({ url: dataUrl });
-        return;
+      if (!process.env.VERCEL) {
+        try {
+          const extFromName = fileName?.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const ext = extFromName || (match[1] === "jpeg" ? "jpg" : match[1]) || "jpg";
+          const safeName = `${crypto.randomUUID()}.${ext}`;
+          const filePath = path2.join(UPLOADS_DIR, safeName);
+          fs2.writeFileSync(filePath, Buffer.from(match[2], "base64"));
+        } catch {
+        }
       }
-      const extFromName = fileName?.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const ext = extFromName || (match[1] === "jpeg" ? "jpg" : match[1]) || "jpg";
-      const safeName = `${crypto.randomUUID()}.${ext}`;
-      const filePath = path2.join(UPLOADS_DIR, safeName);
-      fs2.writeFileSync(filePath, Buffer.from(match[2], "base64"));
-      res.json({ url: `/uploads/${safeName}` });
+      res.json({ url: dataUrl });
     } catch (err) {
       console.error("[Upload] Failed to save image:", err);
       res.status(500).json({ error: "Falha ao salvar imagem" });
