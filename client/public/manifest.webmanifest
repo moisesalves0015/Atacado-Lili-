@@ -1,0 +1,21 @@
+{
+  "name": "Venda Atacado — Controle de vendas",
+  "short_name": "Venda Atacado",
+  "description": "Controle pessoal de clientes, produtos, pedidos, recebimentos e cobranças no atacado.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "portrait-primary",
+  "background_color": "#f7fbf8",
+  "theme_color": "#0f5b63",
+  "prefer_related_applications": false,
+  "categories": ["business", "productivity", "shopping"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

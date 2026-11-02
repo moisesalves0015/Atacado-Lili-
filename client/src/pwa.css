@@ -1,0 +1,9 @@
+/* Ajustes finos do modo instalado: respeita notch, barra inferior e alturas dinâmicas. */
+html { min-height: 100%; background: #f7fbf8; }
+body { min-height: 100dvh; overscroll-behavior-y: none; }
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .app-shell { min-height: 100dvh; }
+  .topbar { padding-top: max(18px, env(safe-area-inset-top)); }
+  .main-shell { padding-bottom: calc(36px + env(safe-area-inset-bottom)); }
+  .sidebar { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+}
