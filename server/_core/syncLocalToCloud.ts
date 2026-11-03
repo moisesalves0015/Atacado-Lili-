@@ -7,7 +7,7 @@ async function main() {
     `[Sync] Local database loaded: ${store.products.length} products, ${store.clients.length} clients, ${store.orders.length} orders.`
   );
   await saveStore();
-  const ok = await pushStoreToFirestore(store);
+  const ok = await pushStoreToFirestore(store, true);
   if (ok) {
     console.log("[Sync] Successfully pushed all local data (products, VCF contacts, orders) to Cloud Firestore!");
   } else {

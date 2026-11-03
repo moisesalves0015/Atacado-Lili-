@@ -1057,7 +1057,7 @@ export async function getAuditLogs() {
 
 export async function syncLocalToCloud() {
   const store = getStore();
-  const ok = await pushStoreToFirestore(store);
+  const ok = await pushStoreToFirestore(store, true);
   return {
     ok,
     products: store.products.length,

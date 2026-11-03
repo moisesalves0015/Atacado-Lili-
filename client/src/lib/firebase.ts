@@ -17,22 +17,8 @@ async function getFirebaseStorage() {
     storagePromise = Promise.all([
       import("firebase/app"),
       import("firebase/storage"),
-      import("firebase/auth").catch(() => null),
-    ]).then(async ([appSdk, storageSdk, authSdk]) => {
+    ]).then(async ([appSdk, storageSdk]) => {
       const app = appSdk.getApps().length ? appSdk.getApp() : appSdk.initializeApp(firebaseConfig);
-      if (authSdk) {
-        try {
-          const auth = authSdk.getAuth(app);
-          if (!auth.currentUser) {
-            await Promise.race([
-              authSdk.signInAnonymously(auth),
-              new Promise(resolve => setTimeout(resolve, 1500)),
-            ]);
-          }
-        } catch {
-          // Ignore anonymous auth error if disabled in console
-        }
-      }
       const storage = storageSdk.getStorage(app);
       storage.maxUploadRetryTime = 2500;
       storage.maxOperationRetryTime = 2500;
@@ -47,7 +33,7 @@ function safeFileName(file: File) {
   return `${crypto.randomUUID()}.${extension}`;
 }
 
-function compressImageToDataUrl(file: File, maxDimension = 1200, quality = 0.85): Promise<{ dataUrl: string; blob: Blob }> {
+function compressImageToDataUrl(file: File, maxDimension = 900, quality = 0.82): Promise<{ dataUrl: string; blob: Blob }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Não foi possível ler a imagem"));

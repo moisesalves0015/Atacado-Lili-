@@ -4,7 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "tsx watch server/_core/index.ts",
+    "dev": "node --import tsx --watch server/_core/index.ts",
     "build:api": "esbuild server/_core/vercelEntry.ts --platform=node --packages=external --bundle --format=esm --outfile=api/index.js",
     "build": "vite build && npm run build:api && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "node -e \"process.env.NODE_ENV='production';import('./dist/index.js')\"",

@@ -115,6 +115,14 @@ let storeCache: LocalStoreData | null = null;
 let localUpdatedAt = 0;
 let lastCloudCheckAt = 0;
 let activeSyncPromise: Promise<void> | null = null;
+let mutationVersion = 0;
+
+// Cache of serialized chunk JSON already confirmed in Cloud Firestore
+const uploadedChunkJson = new Map<string, string>();
+
+function nextMonotonicTimestamp(current?: number): number {
+  return Math.max(Date.now(), (current ?? 0) + 1, localUpdatedAt + 1);
+}
 
 function embedLocalProductImages(data: LocalStoreData): boolean {
   let changed = false;
@@ -211,9 +219,17 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
     if (!existing) {
       productMap.set(p.id, p);
       changed = true;
-    } else if (p.updatedAt.getTime() > existing.updatedAt.getTime() || (!existing.imageUrl && p.imageUrl)) {
-      productMap.set(p.id, p);
-      changed = true;
+    } else if (
+      p.updatedAt.getTime() > existing.updatedAt.getTime() ||
+      (!existing.imageUrl && p.imageUrl) ||
+      p.active !== existing.active ||
+      p.name !== existing.name ||
+      p.priceCents !== existing.priceCents
+    ) {
+      if (p.updatedAt.getTime() >= existing.updatedAt.getTime()) {
+        productMap.set(p.id, p);
+        changed = true;
+      }
     }
   }
 
@@ -239,9 +255,16 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
   for (const o of base.orders) orderMap.set(o.id, o);
   for (const o of incoming.orders) {
     const existing = orderMap.get(o.id);
-    if (!existing || o.updatedAt.getTime() > existing.updatedAt.getTime()) {
+    if (!existing) {
       orderMap.set(o.id, o);
-      if (!existing) changed = true;
+      changed = true;
+    } else if (
+      o.updatedAt.getTime() > existing.updatedAt.getTime() ||
+      o.paidCents > existing.paidCents ||
+      (o.status === "cancelled" && existing.status !== "cancelled")
+    ) {
+      orderMap.set(o.id, o);
+      changed = true;
     }
   }
 
@@ -263,11 +286,43 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
     }
   }
 
-  const products = Array.from(productMap.values()).sort((a, b) => b.id - a.id);
+  const tplMap = new Map<number, LocalStoreData["chargeTemplates"][number]>();
+  for (const t of base.chargeTemplates) tplMap.set(t.id, t);
+  for (const t of incoming.chargeTemplates) {
+    const existing = tplMap.get(t.id);
+    if (!existing || t.updatedAt.getTime() > existing.updatedAt.getTime()) {
+      tplMap.set(t.id, t);
+      if (!existing) changed = true;
+    }
+  }
+
+  const chargeMap = new Map<number, LocalStoreData["charges"][number]>();
+  for (const c of base.charges) chargeMap.set(c.id, c);
+  for (const c of incoming.charges) {
+    if (!chargeMap.has(c.id)) {
+      chargeMap.set(c.id, c);
+      changed = true;
+    }
+  }
+
+  const auditMap = new Map<number, LocalStoreData["auditLogs"][number]>();
+  for (const a of base.auditLogs) auditMap.set(a.id, a);
+  for (const a of incoming.auditLogs) {
+    if (!auditMap.has(a.id)) {
+      auditMap.set(a.id, a);
+    }
+  }
+
+  const products = Array.from(productMap.values()).sort((a, b) => a.id - b.id);
   const clients = Array.from(clientMap.values()).sort((a, b) => a.id - b.id);
   const orders = Array.from(orderMap.values()).sort((a, b) => b.id - a.id);
   const orderItems = Array.from(itemMap.values());
   const payments = Array.from(paymentMap.values());
+  const chargeTemplates = Array.from(tplMap.values()).sort((a, b) => a.id - b.id);
+  const charges = Array.from(chargeMap.values()).sort((a, b) => b.id - a.id);
+  const auditLogs = Array.from(auditMap.values())
+    .sort((a, b) => b.id - a.id)
+    .slice(0, 100);
 
   const merged: LocalStoreData = {
     updatedAt: Math.max(base.updatedAt ?? 0, incoming.updatedAt ?? 0),
@@ -277,18 +332,18 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
       orders: Math.max(base.counters.orders, incoming.counters.orders, ...orders.map(o => o.id), 0),
       orderItems: Math.max(base.counters.orderItems, incoming.counters.orderItems, ...orderItems.map(i => i.id), 0),
       payments: Math.max(base.counters.payments, incoming.counters.payments, ...payments.map(p => p.id), 0),
-      chargeTemplates: Math.max(base.counters.chargeTemplates, incoming.counters.chargeTemplates),
-      charges: Math.max(base.counters.charges, incoming.counters.charges),
-      auditLogs: Math.max(base.counters.auditLogs, incoming.counters.auditLogs),
+      chargeTemplates: Math.max(base.counters.chargeTemplates, incoming.counters.chargeTemplates, ...chargeTemplates.map(t => t.id), 0),
+      charges: Math.max(base.counters.charges, incoming.counters.charges, ...charges.map(c => c.id), 0),
+      auditLogs: Math.max(base.counters.auditLogs, incoming.counters.auditLogs, ...auditLogs.map(a => a.id), 0),
     },
     products,
     clients,
     orders,
     orderItems,
     payments,
-    chargeTemplates: base.chargeTemplates.length >= incoming.chargeTemplates.length ? base.chargeTemplates : incoming.chargeTemplates,
-    charges: base.charges.length >= incoming.charges.length ? base.charges : incoming.charges,
-    auditLogs: (base.auditLogs.length >= incoming.auditLogs.length ? base.auditLogs : incoming.auditLogs).slice(0, 100),
+    chargeTemplates,
+    charges,
+    auditLogs,
   };
 
   return { merged, changed };
@@ -321,7 +376,7 @@ export function getStore(): LocalStoreData {
 export async function ensureStoreLoaded(): Promise<LocalStoreData> {
   const store = getStore();
   const now = Date.now();
-  if (now - lastCloudCheckAt < 1500 && !activeSyncPromise) {
+  if (now - lastCloudCheckAt < 2500 && !activeSyncPromise) {
     return storeCache ?? store;
   }
   if (!activeSyncPromise) {
@@ -334,67 +389,86 @@ export async function ensureStoreLoaded(): Promise<LocalStoreData> {
   return storeCache ?? store;
 }
 
-async function firestoreGetDoc(docId: string, timeoutMs = 2500): Promise<Record<string, any> | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    if (!res.ok) return null;
-    const data: any = await res.json();
-    const fields = data?.fields;
-    if (!fields) return null;
-    const out: Record<string, any> = {};
-    for (const [k, v] of Object.entries<any>(fields)) {
-      if ("stringValue" in v) out[k] = v.stringValue;
-      else if ("integerValue" in v) out[k] = Number(v.integerValue);
-      else if ("doubleValue" in v) out[k] = Number(v.doubleValue);
-      else if ("booleanValue" in v) out[k] = Boolean(v.booleanValue);
+async function firestoreGetDoc(docId: string, timeoutMs = 6000): Promise<Record<string, any> | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        if (attempt === 0) continue;
+        return null;
+      }
+      const data: any = await res.json();
+      const fields = data?.fields;
+      if (!fields) return null;
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries<any>(fields)) {
+        if ("stringValue" in v) out[k] = v.stringValue;
+        else if ("integerValue" in v) out[k] = Number(v.integerValue);
+        else if ("doubleValue" in v) out[k] = Number(v.doubleValue);
+        else if ("booleanValue" in v) out[k] = Boolean(v.booleanValue);
+      }
+      return out;
+    } catch {
+      if (attempt === 0) continue;
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
-    return out;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
+  return null;
 }
 
-async function firestoreSetDoc(docId: string, payload: Record<string, string | number>, timeoutMs = 4500): Promise<boolean> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const fields: Record<string, any> = {};
-    for (const [k, v] of Object.entries(payload)) {
-      if (typeof v === "number") {
-        fields[k] = { integerValue: String(Math.trunc(v)) };
-      } else {
-        fields[k] = { stringValue: String(v) };
-      }
+async function firestoreSetDoc(docId: string, payload: Record<string, string | number>, timeoutMs = 12000): Promise<boolean> {
+  const fields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (typeof v === "number") {
+      fields[k] = { integerValue: String(Math.trunc(v)) };
+    } else {
+      fields[k] = { stringValue: String(v) };
     }
-    const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields }),
-      signal: controller.signal,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
   }
+  const bodyStr = JSON.stringify({ fields });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: bodyStr,
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        return true;
+      }
+      const errText = await res.text().catch(() => "");
+      console.warn(`[Firestore] Failed to write ${docId} (status ${res.status}):`, errText.slice(0, 200));
+    } catch (err) {
+      if (attempt === 1) {
+        console.warn(`[Firestore] Error writing ${docId}:`, err instanceof Error ? err.message : err);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return false;
 }
 
 async function pullRemoteFromFirestore(): Promise<LocalStoreData | null> {
-  const metaData = await firestoreGetDoc("meta", 2200);
+  const metaData = await firestoreGetDoc("meta", 5000);
   if (!metaData) {
     return null;
   }
 
   const remoteUpdatedAt = Number(metaData.updatedAt || 0);
-  if (storeCache && localUpdatedAt > 0 && remoteUpdatedAt > 0 && remoteUpdatedAt === localUpdatedAt) {
+  if (storeCache && localUpdatedAt > 0 && remoteUpdatedAt > 0 && remoteUpdatedAt === localUpdatedAt && uploadedChunkJson.size > 0) {
     return storeCache;
   }
 
@@ -403,23 +477,31 @@ async function pullRemoteFromFirestore(): Promise<LocalStoreData | null> {
   const clientChunksCount = Number(metaData.clientChunksCount || 0);
 
   const [productDocs, clientDocs] = await Promise.all([
-    Promise.all(Array.from({ length: productChunksCount }, (_, idx) => firestoreGetDoc(`products_${idx}`, 3000))),
-    Promise.all(Array.from({ length: clientChunksCount }, (_, idx) => firestoreGetDoc(`clients_${idx}`, 3000))),
+    Promise.all(Array.from({ length: productChunksCount }, (_, idx) => firestoreGetDoc(`products_${idx}`, 6000))),
+    Promise.all(Array.from({ length: clientChunksCount }, (_, idx) => firestoreGetDoc(`clients_${idx}`, 6000))),
   ]);
 
-  const products: any[] = [];
-  for (const docItem of productDocs) {
-    if (docItem?.json) {
-      products.push(...JSON.parse(docItem.json));
-    }
+  // Never accept an incomplete pull if any expected chunk failed to load
+  if (productDocs.some(d => !d?.json) || clientDocs.some(d => !d?.json)) {
+    console.warn("[Firestore] Incomplete chunk read detected; keeping current store to prevent data loss.");
+    return storeCache;
   }
 
-  const clients: any[] = [];
-  for (const docItem of clientDocs) {
+  const products: any[] = [];
+  productDocs.forEach((docItem, idx) => {
     if (docItem?.json) {
+      uploadedChunkJson.set(`products_${idx}`, docItem.json);
+      products.push(...JSON.parse(docItem.json));
+    }
+  });
+
+  const clients: any[] = [];
+  clientDocs.forEach((docItem, idx) => {
+    if (docItem?.json) {
+      uploadedChunkJson.set(`clients_${idx}`, docItem.json);
       clients.push(...JSON.parse(docItem.json));
     }
-  }
+  });
 
   return reviveDates({
     ...baseRaw,
@@ -430,6 +512,7 @@ async function pullRemoteFromFirestore(): Promise<LocalStoreData | null> {
 }
 
 async function syncWithFirestore(): Promise<void> {
+  const startMutationVersion = mutationVersion;
   try {
     const local = getStore();
     const remote = await pullRemoteFromFirestore();
@@ -445,27 +528,31 @@ async function syncWithFirestore(): Promise<void> {
       return;
     }
 
-    const { merged, changed } = mergeStores(remote, local);
+    // Use the latest storeCache in case a mutation happened while pulling
+    const currentLocal = getStore();
+    const { merged, changed } = mergeStores(remote, currentLocal);
     storeCache = merged;
-    localUpdatedAt = merged.updatedAt ?? Date.now();
+    localUpdatedAt = merged.updatedAt ?? nextMonotonicTimestamp();
     writeDisk(storeCache);
 
     if (
-      changed &&
-      (merged.products.length > remote.products.length ||
-        merged.clients.length > remote.clients.length ||
-        merged.orders.length > remote.orders.length)
+      changed ||
+      mutationVersion !== startMutationVersion ||
+      merged.products.length > remote.products.length ||
+      merged.clients.length > remote.clients.length ||
+      merged.orders.length > remote.orders.length ||
+      merged.payments.length > remote.payments.length
     ) {
       await pushStoreToFirestore(storeCache);
     }
-  } catch {
-    // Keep local/embedded store active
+  } catch (err) {
+    console.warn("[Firestore] Sync error:", err);
   }
 }
 
-export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolean> {
+export async function pushStoreToFirestore(data: LocalStoreData, forceAll = false): Promise<boolean> {
   try {
-    const now = Date.now();
+    const now = nextMonotonicTimestamp(data.updatedAt);
     data.updatedAt = now;
     localUpdatedAt = now;
 
@@ -473,36 +560,59 @@ export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolea
       data.auditLogs = data.auditLogs.slice(0, 100);
     }
 
+    // Sort ascending by ID so chunk indices remain stable when new items are added
+    const sortedProducts = [...data.products].sort((a, b) => a.id - b.id);
+    const sortedClients = [...data.clients].sort((a, b) => a.id - b.id);
+
     const productChunks: Array<typeof data.products> = [];
-    for (let i = 0; i < data.products.length; i += PRODUCT_CHUNK_SIZE) {
-      productChunks.push(data.products.slice(i, i + PRODUCT_CHUNK_SIZE));
+    for (let i = 0; i < sortedProducts.length; i += PRODUCT_CHUNK_SIZE) {
+      productChunks.push(sortedProducts.slice(i, i + PRODUCT_CHUNK_SIZE));
     }
 
     const clientChunks: Array<typeof data.clients> = [];
-    for (let i = 0; i < data.clients.length; i += CLIENT_CHUNK_SIZE) {
-      clientChunks.push(data.clients.slice(i, i + CLIENT_CHUNK_SIZE));
+    for (let i = 0; i < sortedClients.length; i += CLIENT_CHUNK_SIZE) {
+      clientChunks.push(sortedClients.slice(i, i + CLIENT_CHUNK_SIZE));
     }
 
-    const writeOps: Array<Promise<boolean>> = [];
+    // 1. Upload only changed product & client chunks first (in controlled concurrency)
+    const pendingChunkTasks: Array<() => Promise<boolean>> = [];
 
     for (let idx = 0; idx < productChunks.length; idx++) {
-      writeOps.push(
-        firestoreSetDoc(`products_${idx}`, {
-          json: JSON.stringify(productChunks[idx]),
-          updatedAt: now,
-        })
-      );
+      const docId = `products_${idx}`;
+      const jsonStr = JSON.stringify(productChunks[idx]);
+      if (!forceAll && uploadedChunkJson.get(docId) === jsonStr) {
+        continue;
+      }
+      pendingChunkTasks.push(async () => {
+        const ok = await firestoreSetDoc(docId, { json: jsonStr, updatedAt: now });
+        if (ok) uploadedChunkJson.set(docId, jsonStr);
+        return ok;
+      });
     }
 
     for (let idx = 0; idx < clientChunks.length; idx++) {
-      writeOps.push(
-        firestoreSetDoc(`clients_${idx}`, {
-          json: JSON.stringify(clientChunks[idx]),
-          updatedAt: now,
-        })
-      );
+      const docId = `clients_${idx}`;
+      const jsonStr = JSON.stringify(clientChunks[idx]);
+      if (!forceAll && uploadedChunkJson.get(docId) === jsonStr) {
+        continue;
+      }
+      pendingChunkTasks.push(async () => {
+        const ok = await firestoreSetDoc(docId, { json: jsonStr, updatedAt: now });
+        if (ok) uploadedChunkJson.set(docId, jsonStr);
+        return ok;
+      });
     }
 
+    // Run chunk uploads in batches of 4 to avoid saturating connection
+    for (let i = 0; i < pendingChunkTasks.length; i += 4) {
+      const batch = pendingChunkTasks.slice(i, i + 4);
+      const batchResults = await Promise.all(batch.map(fn => fn()));
+      if (!batchResults.every(Boolean)) {
+        return false;
+      }
+    }
+
+    // 2. Write meta LAST only after all product and client chunks succeeded
     const metaPayload = {
       counters: data.counters,
       orders: data.orders,
@@ -513,18 +623,17 @@ export async function pushStoreToFirestore(data: LocalStoreData): Promise<boolea
       auditLogs: data.auditLogs,
     };
 
-    writeOps.push(
-      firestoreSetDoc("meta", {
-        updatedAt: now,
-        productChunksCount: productChunks.length,
-        clientChunksCount: clientChunks.length,
-        json: JSON.stringify(metaPayload),
-      })
-    );
+    const metaOk = await firestoreSetDoc("meta", {
+      updatedAt: now,
+      productChunksCount: productChunks.length,
+      clientChunksCount: clientChunks.length,
+      json: JSON.stringify(metaPayload),
+    });
 
-    const results = await Promise.all(writeOps);
-    return results.every(Boolean);
-  } catch {
+    lastCloudCheckAt = Date.now();
+    return metaOk;
+  } catch (err) {
+    console.warn("[Firestore] Push error:", err);
     return false;
   }
 }
@@ -542,11 +651,16 @@ function writeDisk(data: LocalStoreData) {
 
 export async function saveStore(): Promise<void> {
   if (!storeCache) return;
-  storeCache.updatedAt = Date.now();
+  mutationVersion += 1;
+  storeCache.updatedAt = nextMonotonicTimestamp(storeCache.updatedAt);
   localUpdatedAt = storeCache.updatedAt;
   if (storeCache.auditLogs.length > 100) {
     storeCache.auditLogs = storeCache.auditLogs.slice(0, 100);
   }
   writeDisk(storeCache);
-  await pushStoreToFirestore(storeCache);
+  const ok = await pushStoreToFirestore(storeCache);
+  if (!ok) {
+    console.warn("[Store] Retrying cloud sync after failure...");
+    await pushStoreToFirestore(storeCache);
+  }
 }
