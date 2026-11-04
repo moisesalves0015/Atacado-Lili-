@@ -323,17 +323,90 @@ import path from "node:path";
 
 // data/db.json
 var db_default = {
-  updatedAt: 1793752839751,
+  updatedAt: 1793764680581,
   counters: {
     products: 10,
     clients: 2350,
     orders: 28,
     orderItems: 28,
-    payments: 0,
+    payments: 1,
     chargeTemplates: 6,
-    charges: 1,
-    auditLogs: 42
+    charges: 3,
+    auditLogs: 49,
+    messageDestinations: 1,
+    messageLots: 0,
+    messageReminders: 0,
+    reminderEvents: 0,
+    messageActions: 3
   },
+  messageDestinations: [
+    {
+      id: 1,
+      name: "Teste",
+      kind: "group",
+      description: null,
+      inviteUrl: "https://chat.whatsapp.com/DR6PTK54VkZIrXi6h8iflW?s=cl&p=i&mlu=4&ilr=4&iam=2",
+      active: true,
+      createdAt: "2026-11-04T03:55:16.391Z",
+      updatedAt: "2026-11-04T03:55:16.391Z"
+    }
+  ],
+  messageLots: [],
+  messageReminders: [],
+  reminderEvents: [],
+  messageActions: [
+    {
+      id: 1,
+      kind: "group_update",
+      status: "manual_confirmed",
+      destinationType: "none",
+      destinationId: null,
+      clientId: null,
+      orderId: null,
+      productId: 9,
+      reminderId: null,
+      title: "Atualiza\xE7\xE3o \u2014 Vestido Maravilhoso",
+      message: "Atualiza\xE7\xE3o da lista\n\nVestido Maravilhoso R$\xA042,00\n\nBeatriz Zandonadi \u2013 3\nBruna Tiemann \u2013 6\nJaqueline Silva \u2013 3\nSimone Guimar\xE3es \u2013 3\nYuri \u2013 3\n\nTotal de pe\xE7as: 18\nTotal de clientes: 5",
+      idempotencyKey: "update:971df34d-2d72-4ec8-aa43-2e70d31bf7dd",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-04T03:47:58.660Z"}]',
+      createdAt: "2026-11-04T03:47:58.660Z",
+      updatedAt: "2026-11-04T03:47:58.660Z"
+    },
+    {
+      id: 2,
+      kind: "charge",
+      status: "manual_confirmed",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 1,
+      orderId: 5,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-KEG4J5 \u2014 Moises Santos",
+      message: "Obrigada pela compra, Moises Santos! Qualquer coisa estou \xE0 disposi\xE7\xE3o.",
+      idempotencyKey: "charge-5:98c57214-88d7-4f0b-8c6e-2528e168d3e6",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-04T03:53:01.534Z"}]',
+      createdAt: "2026-11-04T03:53:01.534Z",
+      updatedAt: "2026-11-04T03:53:01.534Z"
+    },
+    {
+      id: 3,
+      kind: "charge",
+      status: "manual_confirmed",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 1,
+      orderId: 5,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-KEG4J5 \u2014 Moises Santos",
+      message: "Ol\xE1, Moises Santos! Recebi seu pagamento de R$\xA00,00. Obrigada pela confian\xE7a!",
+      idempotencyKey: "charge-5:59c25581-b730-4153-ba0a-c0ba21204c7d",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-04T03:53:13.482Z"}]',
+      createdAt: "2026-11-04T03:53:13.482Z",
+      updatedAt: "2026-11-04T03:53:13.482Z"
+    }
+  ],
   products: [
     {
       id: 1,
@@ -24240,13 +24313,13 @@ var db_default = {
       code: "PV-2026-HXOSY6",
       clientId: 1114,
       totalCents: 9900,
-      paidCents: 0,
-      status: "pending",
+      paidCents: 9900,
+      status: "paid",
       orderDate: "2026-11-03T02:35:52.853Z",
       dueDate: null,
       notes: null,
       createdAt: "2026-11-03T02:35:52.853Z",
-      updatedAt: "2026-11-03T02:35:52.853Z"
+      updatedAt: "2026-11-04T03:58:00.551Z"
     },
     {
       id: 5,
@@ -24568,7 +24641,17 @@ var db_default = {
       createdAt: "2026-11-04T00:40:39.724Z"
     }
   ],
-  payments: [],
+  payments: [
+    {
+      id: 1,
+      orderId: 6,
+      amountCents: 9900,
+      method: "Pix",
+      notes: null,
+      paidAt: "2026-11-04T03:58:00.551Z",
+      createdAt: "2026-11-04T03:58:00.551Z"
+    }
+  ],
   chargeTemplates: [
     {
       id: 1,
@@ -24615,6 +24698,24 @@ var db_default = {
   ],
   charges: [
     {
+      id: 3,
+      orderId: 5,
+      clientId: 1,
+      templateId: null,
+      message: "Ol\xE1, Moises Santos! Recebi seu pagamento de R$\xA00,00. Obrigada pela confian\xE7a!",
+      action: "manual_sent",
+      createdAt: "2026-11-04T03:53:13.482Z"
+    },
+    {
+      id: 2,
+      orderId: 5,
+      clientId: 1,
+      templateId: null,
+      message: "Obrigada pela compra, Moises Santos! Qualquer coisa estou \xE0 disposi\xE7\xE3o.",
+      action: "manual_sent",
+      createdAt: "2026-11-04T03:53:01.534Z"
+    },
+    {
       id: 1,
       orderId: 10,
       clientId: 1108,
@@ -24625,6 +24726,69 @@ var db_default = {
     }
   ],
   auditLogs: [
+    {
+      id: 49,
+      actorUserId: 1,
+      action: "create",
+      entityType: "payment",
+      entityId: "1",
+      metadata: '{"orderId":6,"amountCents":9900}',
+      createdAt: "2026-11-04T03:58:00.551Z"
+    },
+    {
+      id: 48,
+      actorUserId: 1,
+      action: "create",
+      entityType: "message_destination",
+      entityId: "1",
+      metadata: '{"name":"Teste","active":true}',
+      createdAt: "2026-11-04T03:55:16.391Z"
+    },
+    {
+      id: 47,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "3",
+      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":5,"destinationType":"client"}',
+      createdAt: "2026-11-04T03:53:13.633Z"
+    },
+    {
+      id: 46,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "3",
+      metadata: '{"orderId":5,"action":"manual_sent"}',
+      createdAt: "2026-11-04T03:53:13.482Z"
+    },
+    {
+      id: 45,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "2",
+      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":5,"destinationType":"client"}',
+      createdAt: "2026-11-04T03:53:01.696Z"
+    },
+    {
+      id: 44,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "2",
+      metadata: '{"orderId":5,"action":"manual_sent"}',
+      createdAt: "2026-11-04T03:53:01.534Z"
+    },
+    {
+      id: 43,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "1",
+      metadata: '{"kind":"group_update","status":"manual_confirmed","orderId":null,"destinationType":"none"}',
+      createdAt: "2026-11-04T03:47:58.660Z"
+    },
     {
       id: 42,
       actorUserId: 1,

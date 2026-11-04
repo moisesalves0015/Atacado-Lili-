@@ -43,16 +43,17 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import MessageCenter, { type MessageIntent } from "@/components/MessageCenter";
+import VitrineMessageCenter from "@/components/VitrineMessageCenter";
 
-type Section = "dashboard" | "products" | "product" | "clients" | "orders" | "charges" | "finance" | "reports" | "settings";
+type Section = "dashboard" | "messages" | "products" | "product" | "clients" | "orders" | "charges" | "finance" | "reports" | "settings";
 type ProductForm = { id: number | null; name: string; price: string; category: string; description: string; imageUrl: string };
 type ClientForm = { id: number | null; name: string; phone: string; notes: string };
 type SaleItem = { productId: string; quantity: string; unitPriceCents?: number };
 type VcfContact = { name: string; phone: string };
 
-
 const navItems: Array<{ id: Section; label: string; icon: typeof LayoutDashboard }> = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "messages", label: "Central de mensagens", icon: MessageCircle },
   { id: "products", label: "Produtos", icon: Package },
   { id: "clients", label: "Clientes", icon: UsersRound },
   { id: "orders", label: "Pedidos", icon: ClipboardList },
@@ -155,6 +156,7 @@ export default function Home() {
   const [orderEditor, setOrderEditor] = useState<{ clientId: string; notes: string; items: SaleItem[] } | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
   const [showMessageCenter, setShowMessageCenter] = useState(false);
+  const [showVitrineMessages, setShowVitrineMessages] = useState(false);
   const [messageIntent, setMessageIntent] = useState<MessageIntent | null>(null);
   const notifiedKeys = useRef<Set<string>>(new Set());
 
@@ -465,7 +467,7 @@ export default function Home() {
   );
 
   const title = navItems.find(item => item.id === section)?.label ?? "Produto";
-  const subtitle = section === "dashboard" ? "visão geral da operação" : section === "orders" ? "registre vendas sem perder o fio" : section === "product" ? "acompanhe pedidos por produto" : section === "reports" ? "prontos para enviar às chefes" : "organize o próximo passo";
+  const subtitle = section === "dashboard" ? "visão geral da operação" : section === "messages" ? "lembretes, modelos e histórico" : section === "orders" ? "registre vendas sem perder o fio" : section === "product" ? "acompanhe pedidos por produto" : section === "reports" ? "prontos para enviar às chefes" : "organize o próximo passo";
 
   return <div className={isQuickSaleHome ? "quick-home-shell" : "app-shell"}>
     {isQuickSaleHome ? (
@@ -485,7 +487,7 @@ export default function Home() {
         onMinimize={() => setIsQuickSaleHome(false)}
         onAddProduct={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }}
         onAddClient={() => { setClientForm(emptyClient); setShowClientForm(true); }}
-        onOpenMessages={() => openMessageCenter(quickProductId ? { tab: "update", productId: quickProductId } : undefined)}
+        onOpenMessages={() => setShowVitrineMessages(true)}
         dueReminders={dueReminders}
         onReviewReminder={reviewDueReminder}
       />
@@ -495,15 +497,43 @@ export default function Home() {
           <div className="sidebar-brand"><div className="brand-mark">VA</div><div><strong>Venda Atacado</strong><span>controle pessoal</span></div><button className="sidebar-close" onClick={() => setMobileMenu(false)}><X size={18} /></button></div>
           <div className="sidebar-context"><span className="context-dot" /> operação ativa <span className="context-lock">admin</span></div>
           <button className="vitrine-launch-btn" onClick={() => setIsQuickSaleHome(true)}><Maximize2 size={16} /><span>Home de Registro (Vitrine)</span></button>
-          <button className="nav-item" onClick={() => { setMobileMenu(false); openMessageCenter(); }}><MessageCircle size={18} /><span>Central de mensagens</span>{dueReminders.length ? <em>{dueReminders.length}</em> : null}</button>
-          <nav>{navItems.map(item => { const Icon = item.icon; return <button key={item.id} className={`nav-item ${section === item.id || (item.id === "products" && section === "product") ? "active" : ""}`} onClick={() => navigate(item.id)}><Icon size={18} /><span>{item.label}</span>{item.id === "orders" && dashboard?.stats?.pendingOrders ? <em>{dashboard.stats.pendingOrders}</em> : null}</button>; })}</nav>
+          <nav>{navItems.map(item => { const Icon = item.icon; const badge = item.id === "orders" && dashboard?.stats?.pendingOrders ? dashboard.stats.pendingOrders : item.id === "messages" && dueReminders.length ? dueReminders.length : null; return <button key={item.id} className={`nav-item ${section === item.id || (item.id === "products" && section === "product") ? "active" : ""}`} onClick={() => { if (item.id === "messages") { navigate("messages"); openMessageCenter(); } else { navigate(item.id); } }}><Icon size={18} /><span>{item.label}</span>{badge ? <em>{badge}</em> : null}</button>; })}</nav>
           <div className="sidebar-bottom"><div className="admin-card"><div className="avatar">{(user.name ?? "A").charAt(0).toUpperCase()}</div><div><strong>{user.name ?? "Administradora"}</strong><span>acesso total</span></div><button onClick={() => logout()} title="Sair"><LogOut size={16} /></button></div><div className="sidebar-note">Dados protegidos e salvos no banco do projeto.</div></div>
         </aside>
         {mobileMenu && <button className="sidebar-scrim" onClick={() => setMobileMenu(false)} aria-label="Fechar menu" />}
         <main className="main-shell">
-          <header className="topbar"><div className="topbar-left"><button className="mobile-menu-button" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><div className="eyebrow">{subtitle}</div><h1>{title}</h1></div></div><div className="topbar-actions"><button className="icon-button" onClick={() => refresh()} title="Atualizar dados"><RefreshCw size={17} /></button><Button variant="outline" onClick={() => openMessageCenter()}><MessageCircle size={16} /> Mensagens{dueReminders.length ? ` (${dueReminders.length})` : ""}</Button><Button variant="outline" onClick={() => setIsQuickSaleHome(true)}><Maximize2 size={16} /> Modo Vitrine</Button><Button onClick={() => navigate("orders")}><Plus size={17} /> Nova venda</Button></div></header>
+          <header className="topbar"><div className="topbar-left"><button className="mobile-menu-button" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><div className="eyebrow">{subtitle}</div><h1>{title}</h1></div></div><div className="topbar-actions"><button className="icon-button" onClick={() => refresh()} title="Atualizar dados"><RefreshCw size={17} /></button><Button variant="outline" onClick={() => openMessageCenter()}><MessageCircle size={16} /> Central completa{dueReminders.length ? ` (${dueReminders.length})` : ""}</Button><Button variant="outline" onClick={() => setIsQuickSaleHome(true)}><Maximize2 size={16} /> Modo Vitrine</Button><Button onClick={() => navigate("orders")}><Plus size={17} /> Nova venda</Button></div></header>
 
           {section === "dashboard" && <DashboardView dashboard={dashboard} loading={dashboardQuery.isLoading} navigate={navigate} onOrder={setSelectedOrderId} />}
+          {section === "messages" && (
+            <div className="content-stack">
+              <SectionHeader
+                eyebrow="comunicação e cobranças"
+                title="Central de mensagens"
+                description="Modelos, lembretes, grupos configurados e histórico completo da operação."
+                action={
+                  <Button onClick={() => openMessageCenter()}>
+                    <MessageCircle size={16} /> Abrir Central completa
+                  </Button>
+                }
+              />
+              <div className="hero-strip">
+                <div>
+                  <div className="eyebrow">painel administrativo</div>
+                  <h2>Central de mensagens completa.</h2>
+                  <p>Gerencie atualizações de listas, cobranças individuais, relatórios, destinos e lembretes recorrentes em uma experiência única.</p>
+                </div>
+                <div className="hero-actions">
+                  <Button size="sm" variant="secondary" onClick={() => openMessageCenter()}>
+                    <MessageCircle size={16} /> Ver todas as abas
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setIsQuickSaleHome(true)}>
+                    <Maximize2 size={16} /> Modo Vitrine
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           {section === "products" && <ProductsView products={products} search={productSearch} setSearch={setProductSearch} onAdd={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }} onOpen={(id: number) => { setSelectedProductId(id); navigate("product"); }} onEdit={(product: any) => { setProductForm({ id: product.id, name: product.name, price: centsToInput(product.priceCents), category: product.category ?? "", description: product.description ?? "", imageUrl: product.imageUrl ?? "" }); setProductImageFile(null); setShowProductForm(true); }} onDuplicate={(product: any) => run(() => duplicateProduct.mutateAsync({ id: product.id }), "Produto duplicado")} onToggle={(product: any) => run(() => updateProduct.mutateAsync({ id: product.id, active: !product.active }), product.active ? "Produto encerrado" : "Produto reativado")} />}
           {section === "product" && <ProductDetailView detail={productDetailQuery.data as any} loading={productDetailQuery.isLoading} onBack={() => navigate("products")} onOrder={setSelectedOrderId} onCharge={openCharge} />}
           {section === "clients" && <ClientsView clients={clients} search={clientSearch} setSearch={setClientSearch} onAdd={() => { setClientForm(emptyClient); setShowClientForm(true); }} onEdit={(client: any) => { setClientForm({ id: client.id, name: client.name, phone: client.phone, notes: client.notes ?? "" }); setShowClientForm(true); }} onToggle={(client: any) => run(() => updateClient.mutateAsync({ id: client.id, active: !client.active }), client.active ? "Cliente arquivado" : "Cliente reativado")} onFile={handleVcfFile} />}
@@ -521,6 +551,11 @@ export default function Home() {
     {showVcf && <Modal title="Importar contatos VCF" onClose={() => setShowVcf(false)}><div className="import-summary"><div><strong>{vcfPreview.length}</strong><span>contatos na prévia</span></div><div><strong>{new Set(vcfPreview.map(contact => contact.phone.replace(/\D/g, ""))).size}</strong><span>telefones únicos</span></div><div className={vcfInvalidCount ? "import-warning" : ""}><strong>{vcfInvalidCount}</strong><span>telefones curtos ignorados</span></div></div>{vcfInvalidCount > 0 && <p className="microcopy import-warning-text">Alguns cartões possuem códigos ou telefones incompletos. Eles serão ignorados; os contatos válidos serão importados normalmente.</p>}<div className="vcf-list">{vcfPreview.map((contact, index) => <div className={`vcf-row ${contact.phone.replace(/\D/g, "").length < 8 ? "invalid-row" : ""}`} key={`${contact.phone}-${index}`}><span>{contact.name}</span><small>{contact.phone}{contact.phone.replace(/\D/g, "").length < 8 ? " · ignorado" : ""}</small></div>)}</div><div className="modal-actions"><Button variant="outline" onClick={() => setShowVcf(false)}>Cancelar</Button><Button disabled={!vcfPreview.length || vcfInvalidCount === vcfPreview.length || importVcf.isPending} onClick={() => run(async () => { const result = await importVcf.mutateAsync({ contacts: vcfPreview }); if (result.invalid) toast.info(`${result.invalid} contato(s) foram ignorado(s) por telefone insuficiente`); setShowVcf(false); }, "Contatos válidos importados")}>{importVcf.isPending ? "Importando contatos..." : "Importar contatos válidos"}</Button></div></Modal>}
     {chargeDraft && <Modal title="Preparar cobrança" onClose={() => setChargeDraft(null)}><div className="charge-recipient"><div className="avatar">{chargeDraft.order.client?.name?.charAt(0) ?? "C"}</div><div><strong>{chargeDraft.order.client?.name}</strong><span>{chargeDraft.order.client?.phone} · saldo {formatMoney(Math.max(0, chargeDraft.order.totalCents - chargeDraft.order.paidCents))}</span></div></div><label>Modelo<select value={chargeDraft.templateId} onChange={event => { const id = Number(event.target.value); const template = templates.find(item => item.id === id); if (template) setChargeDraft({ ...chargeDraft, templateId: id, message: templateMessage(template.body, chargeDraft.order) }); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Mensagem<textarea className="message-editor" value={chargeDraft.message} onChange={event => setChargeDraft({ ...chargeDraft, message: event.target.value })} /></label><p className="microcopy">O botão abre o WhatsApp com o texto preenchido. O envio final depende da sua confirmação dentro do WhatsApp.</p><div className="modal-actions"><Button variant="outline" onClick={() => navigator.clipboard?.writeText(chargeDraft.message).then(() => toast.success("Mensagem copiada"))}><Copy size={16} /> Copiar</Button><Button onClick={submitCharge}><MessageCircle size={16} /> Abrir WhatsApp</Button></div></Modal>}
     {selectedOrderId && <OrderDrawer order={selectedOrder} clients={clients} products={products} editor={orderEditor} setEditor={setOrderEditor} editing={editingOrder} setEditing={setEditingOrder} paymentAmount={paymentAmount} setPaymentAmount={setPaymentAmount} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onClose={() => setSelectedOrderId(null)} onSaveEdit={submitOrderEdit} onPayment={submitPayment} onCancel={() => run(() => cancelOrder.mutateAsync({ id: selectedOrderId }), "Pedido cancelado")} onCharge={openCharge} />}
+    <VitrineMessageCenter
+      open={showVitrineMessages}
+      onClose={() => setShowVitrineMessages(false)}
+      initialProductId={quickProductId}
+    />
     <MessageCenter
       open={showMessageCenter}
       onClose={() => setShowMessageCenter(false)}

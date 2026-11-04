@@ -1440,3 +1440,791 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
     display: inline;
   }
 }
+
+/* ==========================================================================
+   Central de Mensagens da Vitrine (Experiência Simplificada e Operacional)
+   ========================================================================== */
+
+.vmc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(13, 44, 47, 0.45);
+  backdrop-filter: blur(6px);
+  animation: vmcFadeIn 0.18s ease-out;
+}
+
+@keyframes vmcFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.vmc-modal {
+  width: min(840px, 100%);
+  max-height: calc(100dvh - 28px);
+  height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-warm);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(15, 50, 52, 0.22);
+  overflow: hidden;
+}
+
+.vmc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.vmc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.vmc-close-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--subtle);
+  color: var(--teal-deep);
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.vmc-close-btn:hover {
+  background: var(--teal-soft);
+  border-color: #b7ddd5;
+}
+
+.vmc-title-box h2 {
+  margin: 0;
+  font: 800 16px/1.2 "Manrope", sans-serif;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.vmc-title-box small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.vmc-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vmc-full-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px dashed #b7ddd5;
+  background: #f0f7f5;
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 700;
+  transition: background 0.14s ease;
+}
+
+.vmc-full-btn:hover {
+  background: var(--teal-soft);
+  border-style: solid;
+}
+
+.vmc-icon-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+}
+
+.vmc-icon-close:hover {
+  background: var(--subtle);
+  color: var(--ink);
+}
+
+/* Duas Opções Principais: Segmented Control no Topo */
+.vmc-nav-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #f2f7f5;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.vmc-nav-tab {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  transition: all 0.16s ease;
+}
+
+.vmc-nav-tab:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.vmc-nav-tab.active {
+  background: var(--surface);
+  border-color: #c7ded7;
+  color: var(--teal-deep);
+  box-shadow: 0 2px 8px rgba(15, 91, 99, 0.08);
+}
+
+.vmc-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px 20px;
+  scrollbar-gutter: stable;
+}
+
+.vmc-flow-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 760px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 auto;
+}
+
+.vmc-step-section {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+  box-shadow: 0 4px 16px rgba(25, 66, 68, 0.02);
+}
+
+.vmc-step-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.vmc-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--teal-soft);
+  color: var(--teal-deep);
+  font: 800 11px/1 "Manrope", sans-serif;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.vmc-step-title strong {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.vmc-step-title small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.vmc-step-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+}
+
+.vmc-pill-filter {
+  border: 1px solid #bdded6;
+  border-radius: 99px;
+  background: var(--teal-soft);
+  color: var(--teal-deep);
+  padding: 4px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vmc-pill-filter.is-active {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+}
+
+/* Rolagem Horizontal Compacta de Produtos (Fotos em Cards) */
+.vmc-products-scroll {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 8px;
+  scrollbar-gutter: stable;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.vmc-product-card {
+  width: 96px;
+  flex: 0 0 96px;
+  scroll-snap-align: start;
+  border: 2px solid var(--line);
+  border-radius: 11px;
+  background: #fafcfb;
+  padding: 6px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.vmc-product-card:hover {
+  border-color: #a9d5cb;
+  transform: translateY(-1px);
+}
+
+.vmc-product-card.is-selected {
+  border-color: var(--teal);
+  background: #effaf6;
+  box-shadow: 0 4px 12px rgba(15, 91, 99, 0.12);
+}
+
+.vmc-product-card.is-dimmed {
+  opacity: 0.65;
+}
+
+.vmc-product-thumb {
+  position: relative;
+  width: 100%;
+  height: 62px;
+  border-radius: 8px;
+  background: #e9f2ef;
+  overflow: hidden;
+}
+
+.vmc-product-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.vmc-placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #98bab1;
+}
+
+.vmc-selected-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(15, 91, 99, 0.3);
+}
+
+.vmc-pending-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--coral);
+  color: #fff;
+  font: 800 9px/1 "Manrope", sans-serif;
+  display: grid;
+  place-items: center;
+}
+
+.vmc-pending-badge.vmc-sold-badge {
+  background: var(--teal-deep);
+}
+
+.vmc-product-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.vmc-product-price {
+  font-size: 10px;
+  color: var(--teal);
+  font-weight: 800;
+}
+
+/* Clientes Relacionados: Chips compactos */
+.vmc-buyers-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.vmc-buyer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: #f8faf9;
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.vmc-buyer-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #d4e9e2;
+  color: var(--teal-deep);
+  font: 800 10px/1 "Manrope", sans-serif;
+  display: grid;
+  place-items: center;
+}
+
+.vmc-buyer-name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vmc-buyer-qty {
+  font-weight: 800;
+  color: var(--teal);
+  font-size: 10px;
+}
+
+.vmc-empty-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--subtle);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.vmc-text-sage {
+  color: var(--sage);
+}
+
+/* Accordion Minimizável para Configurações */
+.vmc-accordion-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px dashed var(--line);
+  background: #fbfdfc;
+  color: var(--teal-deep);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.vmc-accordion-toggle:hover {
+  background: var(--teal-soft);
+  border-color: #b7ddd5;
+}
+
+.vmc-acc-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.vmc-accordion-body {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f5f9f7;
+  border: 1px solid #dcece6;
+  display: grid;
+  gap: 10px;
+  animation: vmcFadeIn 0.15s ease-out;
+}
+
+.vmc-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.vmc-chk-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.vmc-chk-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--teal);
+}
+
+.vmc-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.vmc-field-inline select {
+  flex: 1;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+/* Mensagem e Ações (Padronizada em Atualização de Grupo e Cobrança de Clientes) */
+.vmc-message-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 8px;
+}
+
+.vmc-message-textarea {
+  width: 100%;
+  height: 136px;
+  min-height: 116px;
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+  padding: 10px 12px;
+  font: 12px/1.5 "DM Sans", sans-serif;
+  color: var(--ink);
+  resize: none;
+  scrollbar-gutter: stable;
+}
+
+.vmc-message-textarea:focus {
+  border-color: #8cc6bb;
+  box-shadow: 0 0 0 3px rgba(87, 165, 147, 0.1);
+}
+
+.vmc-edited-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--coral);
+}
+
+.vmc-edited-hint button {
+  border: 0;
+  background: transparent;
+  color: var(--teal);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.vmc-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.vmc-status-chip {
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.vmc-status-draft,
+.vmc-status-ready {
+  background: #eef3f1;
+  color: var(--muted);
+}
+
+.vmc-status-share_started {
+  background: var(--teal-soft);
+  color: var(--teal-deep);
+}
+
+.vmc-status-manual_confirmed,
+.vmc-status-api_confirmed {
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+
+/* ==========================================================================
+   Cobrança de Clientes na Vitrine (Cards Compactos e Expansíveis)
+   ========================================================================== */
+
+.vmc-charge-cards-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 8px;
+}
+
+.vmc-charge-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdfc;
+  min-width: 0;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.vmc-charge-card:hover {
+  border-color: #b7ddd5;
+}
+
+.vmc-charge-card.is-expanded {
+  border-color: var(--teal);
+  box-shadow: 0 4px 14px rgba(15, 91, 99, 0.08);
+}
+
+.vmc-charge-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 11px;
+}
+
+.vmc-charge-card.is-expanded .vmc-charge-card-header {
+  border-radius: 11px 11px 0 0;
+}
+
+.vmc-charge-header-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vmc-charge-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #dceee9;
+  color: var(--teal-deep);
+  font: 800 12px/1 "Manrope", sans-serif;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.vmc-charge-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.vmc-charge-client-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vmc-charge-client-products {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--teal-deep);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vmc-charge-client-phone {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.vmc-charge-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.vmc-charge-price-tag {
+  text-align: right;
+}
+
+.vmc-charge-balance-label {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.vmc-charge-balance-val {
+  display: block;
+  font: 800 13px/1 "Manrope", sans-serif;
+  color: var(--coral);
+}
+
+.vmc-expand-icon-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 3px;
+  display: grid;
+  place-items: center;
+}
+
+/* Corpo Expansível da Cobrança Individual */
+.vmc-charge-card-body {
+  border-top: 1px solid #edf1ef;
+  background: #fff;
+  padding: 11px 13px;
+  border-radius: 0 0 11px 11px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 9px;
+  animation: vmcFadeIn 0.15s ease-out;
+}
+
+.vmc-template-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.vmc-template-select-row select {
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-warm);
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.vmc-charge-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 640px) {
+  .vmc-overlay {
+    padding: 0;
+  }
+
+  .vmc-modal {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .vmc-options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vmc-product-card {
+    width: 86px;
+    flex-basis: 86px;
+  }
+
+  .vmc-product-thumb {
+    height: 54px;
+  }
+}
+
