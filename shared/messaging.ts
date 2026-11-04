@@ -1,0 +1,342 @@
+/**
+ * Lógica pura (sem I/O) da Central de Mensagens: formatação de relatórios e
+ * atualizações, cobranças, estados de ação e agenda de lembretes.
+ * É usada pelo cliente, pelo servidor e pelos testes.
+ */
+import { formatDate, formatMoney } from "./format";
+
+// ---------------------------------------------------------------------------
+// Relatórios e atualização de lista
+// ---------------------------------------------------------------------------
+
+export type ReportRow = {
+  orderId: number;
+  clientId: number;
+  clientName: string;
+  phone: string;
+  productId: number;
+  productName: string;
+  unitPriceCents: number;
+  quantity: number;
+  totalCents: number;
+};
+
+export type ReportTextOptions = {
+  /** Inclui o telefone na linha seguinte ao nome/quantidade (padrão: true, formato original). */
+  includePhones?: boolean;
+  /** Inclui o preco unitario historico no cabecalho do produto (padrao: true). */
+  includePrices?: boolean;
+};
+
+/** Blocos "produto + preço" com as clientes. Usa o preço histórico de cada item. */
+export function buildReportBlocks(rows: ReportRow[], options: ReportTextOptions = {}): string[] {
+  const includePhones = options.includePhones ?? true;
+  const includePrices = options.includePrices ?? true;
+  const groups = new Map<string, ReportRow[]>();
+  for (const row of rows) {
+    const key = includePrices ? `${row.productId}-${row.unitPriceCents}` : `${row.productId}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const sections: string[] = [];
+  for (const group of groups.values()) {
+    const first = group[0];
+    const header = includePrices ? `${first.productName} ${formatMoney(first.unitPriceCents)}` : first.productName;
+    if (includePhones) {
+      const lines = [header];
+      for (const row of group) lines.push(`${row.clientName} – ${row.quantity}\n${row.phone}`);
+      sections.push(lines.join("\n\n"));
+    } else {
+      sections.push(`${header}\n\n${group.map(row => `${row.clientName} – ${row.quantity}`).join("\n")}`);
+    }
+  }
+  return sections;
+}
+
+export function reportTotals(rows: ReportRow[]) {
+  return {
+    clients: new Set(rows.map(row => row.clientId)).size,
+    pieces: rows.reduce((sum, row) => sum + row.quantity, 0),
+    totalCents: rows.reduce((sum, row) => sum + row.totalCents, 0),
+  };
+}
+
+/** Mesmo formato do módulo de Relatórios: blocos + resumo final. */
+export function buildReportText(rows: ReportRow[], options: ReportTextOptions = {}): string {
+  const sections = buildReportBlocks(rows, options);
+  const totals = reportTotals(rows);
+  sections.push(`Total de clientes: ${totals.clients}\nTotal de peças: ${totals.pieces}\nValor total vendido: ${formatMoney(totals.totalCents)}`);
+  return sections.join("\n\n");
+}
+
+export type LotProgress = { total: number; goal: number; remaining: number; percent: number; reached: boolean };
+
+/** Meta é opcional: sem meta válida não há progresso. */
+export function computeProgress(total: number, goal: number | null | undefined): LotProgress | null {
+  if (!goal || goal < 1) return null;
+  const safeTotal = Math.max(0, total);
+  return {
+    total: safeTotal,
+    goal,
+    remaining: Math.max(0, goal - safeTotal),
+    percent: Math.min(100, Math.round((safeTotal / goal) * 100)),
+    reached: safeTotal >= goal,
+  };
+}
+
+export type GroupUpdateOptions = {
+  showNames: boolean;
+  showPrices: boolean;
+  showPhones: boolean;
+  showTotals: boolean;
+  showProgress: boolean;
+  intro: string;
+  closing: string;
+};
+
+export const defaultGroupUpdateOptions: GroupUpdateOptions = {
+  showNames: true,
+  showPrices: true,
+  showPhones: false,
+  showTotals: true,
+  showProgress: true,
+  intro: "Atualização da lista",
+  closing: "",
+};
+
+export function progressLine(progress: LotProgress) {
+  return progress.reached
+    ? `Meta do lote: ${progress.goal} peças — atingida (${progress.total} registradas)`
+    : `Meta do lote: ${progress.goal} peças — ${progress.total} registradas, faltam ${progress.remaining}`;
+}
+
+/**
+ * Texto de atualização para o grupo. Por padrão NÃO expõe telefones nem valores
+ * financeiros de clientes (saldo/pagamento nunca entram aqui).
+ */
+export function buildGroupUpdateText(input: {
+  productName: string;
+  rows: ReportRow[];
+  goalPieces?: number | null;
+  options?: Partial<GroupUpdateOptions>;
+}): string {
+  const options = { ...defaultGroupUpdateOptions, ...input.options };
+  const totals = reportTotals(input.rows);
+  const parts: string[] = [];
+  if (options.intro.trim()) parts.push(options.intro.trim());
+
+  if (!input.rows.length) {
+    parts.push(`${input.productName}\n\nAinda sem quantidades registradas.`);
+  } else if (options.showNames) {
+    parts.push(buildReportBlocks(input.rows, { includePhones: options.showPhones, includePrices: options.showPrices }).join("\n\n"));
+  } else {
+    const price = new Set(input.rows.map(row => row.unitPriceCents));
+    const priceText = options.showPrices && price.size === 1 ? ` ${formatMoney([...price][0])}` : "";
+    parts.push(`${input.productName}${priceText}`);
+  }
+
+  const footer: string[] = [];
+  if (options.showTotals) footer.push(`Total de peças: ${totals.pieces}\nTotal de clientes: ${totals.clients}`);
+  if (options.showProgress) {
+    const progress = computeProgress(totals.pieces, input.goalPieces);
+    if (progress) footer.push(progressLine(progress));
+  }
+  if (footer.length) parts.push(footer.join("\n"));
+  if (options.closing.trim()) parts.push(options.closing.trim());
+  return parts.join("\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Cobranças (sempre uma mensagem por cliente/pedido)
+// ---------------------------------------------------------------------------
+
+export type ChargeOrder = {
+  id: number;
+  code: string;
+  status: string;
+  totalCents: number;
+  paidCents: number;
+  dueDate?: string | Date | null;
+  orderDate?: string | Date | null;
+  client: { id?: number; name: string; phone: string };
+  items?: Array<{ productName: string; quantity: number }>;
+};
+
+export function openBalanceCents(order: { totalCents: number; paidCents: number }) {
+  return Math.max(0, order.totalCents - order.paidCents);
+}
+
+/** Pedidos cobráveis: não cancelados, com saldo. Vencidos primeiro, depois os mais antigos. */
+export function collectibleOrders<T extends ChargeOrder>(orders: T[]): T[] {
+  const time = (value?: string | Date | null) => (value ? new Date(value).getTime() : 0);
+  return orders
+    .filter(order => order.status !== "cancelled" && openBalanceCents(order) > 0)
+    .sort((a, b) => {
+      const overdueDiff = Number(b.status === "overdue") - Number(a.status === "overdue");
+      return overdueDiff || time(a.orderDate) - time(b.orderDate);
+    });
+}
+
+/** Preenche os modelos de cobrança existentes com dados reais do pedido. */
+export function fillChargeTemplate(body: string, order: any, valueOverride?: number) {
+  const product = order.items?.map((item: any) => `${item.productName} (${item.quantity})`).join(", ") || "seu pedido";
+  const pending = valueOverride ?? Math.max(0, order.totalCents - order.paidCents);
+  return body
+    .replaceAll("{nome_cliente}", order.client?.name ?? "cliente")
+    .replaceAll("{produto}", product)
+    .replaceAll("{numero_pedido}", order.code ?? "")
+    .replaceAll("{valor_pendente}", formatMoney(pending))
+    .replaceAll("{valor_pago}", formatMoney(order.paidCents ?? 0))
+    .replaceAll("{data_vencimento}", formatDate(order.dueDate));
+}
+
+export type BalanceChange = { orderId: number; expectedCents: number; currentCents: number };
+
+/** Compara os saldos usados na prévia com os saldos atuais (0 se o pedido deixou de ser cobrável). */
+export function detectBalanceChanges(expected: Record<number, number>, current: ChargeOrder[]): BalanceChange[] {
+  const byId = new Map(current.map(order => [order.id, order]));
+  const changes: BalanceChange[] = [];
+  for (const [id, expectedCents] of Object.entries(expected)) {
+    const order = byId.get(Number(id));
+    const currentCents = order && order.status !== "cancelled" ? openBalanceCents(order) : 0;
+    if (currentCents !== expectedCents) changes.push({ orderId: Number(id), expectedCents, currentCents });
+  }
+  return changes;
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp (abrir conversa ≠ mensagem enviada)
+// ---------------------------------------------------------------------------
+
+/** Telefones brasileiros com 10/11 dígitos recebem o DDI 55. */
+export function toWaPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
+}
+
+export function waChatUrl(phone: string, text: string) {
+  return `https://wa.me/${toWaPhone(phone)}?text=${encodeURIComponent(text)}`;
+}
+
+const WHATSAPP_HOSTS = ["chat.whatsapp.com", "wa.me", "api.whatsapp.com", "web.whatsapp.com", "whatsapp.com"];
+
+/** Aceita apenas links https do próprio WhatsApp (convite de grupo ou conversa). */
+export function isAllowedWhatsAppUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && WHATSAPP_HOSTS.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Estados de ação — nunca "enviada/entregue" sem confirmação real
+// ---------------------------------------------------------------------------
+
+export const ACTION_STATUSES = ["reminder_pending", "draft", "ready", "share_started", "manual_confirmed", "api_confirmed"] as const;
+export type ActionStatus = (typeof ACTION_STATUSES)[number];
+/** `api_confirmed` só pode ser definido por uma integração oficial no servidor (inexistente hoje). */
+export const CLIENT_SETTABLE_STATUSES = ["reminder_pending", "draft", "ready", "share_started", "manual_confirmed"] as const;
+
+const STATUS_RANK: Record<ActionStatus, number> = { reminder_pending: 0, draft: 1, ready: 2, share_started: 3, manual_confirmed: 4, api_confirmed: 5 };
+
+export const ACTION_STATUS_LABELS: Record<ActionStatus, string> = {
+  reminder_pending: "Lembrete pendente",
+  draft: "Rascunho",
+  ready: "Pronto para compartilhar",
+  share_started: "WhatsApp aberto / compartilhamento iniciado",
+  manual_confirmed: "Envio confirmado manualmente por você",
+  api_confirmed: "Envio confirmado pela API oficial",
+};
+
+/** Estados só avançam; repetir ou voltar é ignorado (idempotência). */
+export function canAdvanceStatus(from: ActionStatus, to: ActionStatus) {
+  return STATUS_RANK[to] > STATUS_RANK[from];
+}
+
+// ---------------------------------------------------------------------------
+// Agenda de lembretes (notificam a administradora; não enviam nada)
+// ---------------------------------------------------------------------------
+
+export const MIN_INTERVAL_MINUTES = 5;
+export const MAX_INTERVAL_MINUTES = 7 * 24 * 60;
+
+export type ReminderSchedule = {
+  intervalMinutes: number;
+  anchorAt: Date;
+  timezone: string;
+  quietStart?: string | null;
+  quietEnd?: string | null;
+};
+
+export function isValidTimezone(timezone: string) {
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function parseClock(value?: string | null): number | null {
+  const match = value?.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+export function localMinutesOfDay(date: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+  const hour = Number(parts.find(part => part.type === "hour")?.value ?? 0) % 24;
+  const minute = Number(parts.find(part => part.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+/** Horário silencioso (pode atravessar a meia-noite, ex.: 22:00–07:00). */
+export function isQuietTime(date: Date, schedule: Pick<ReminderSchedule, "timezone" | "quietStart" | "quietEnd">) {
+  const start = parseClock(schedule.quietStart);
+  const end = parseClock(schedule.quietEnd);
+  if (start === null || end === null || start === end) return false;
+  const minutes = localMinutesOfDay(date, schedule.timezone);
+  return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+}
+
+/** Primeira ocorrência da grade (âncora + k·intervalo) estritamente depois de `from`. */
+export function nextSlotAfter(schedule: ReminderSchedule, from: Date): Date {
+  const step = schedule.intervalMinutes * 60_000;
+  const anchor = schedule.anchorAt.getTime();
+  if (from.getTime() < anchor) return new Date(anchor);
+  const k = Math.floor((from.getTime() - anchor) / step) + 1;
+  return new Date(anchor + k * step);
+}
+
+/** Pula ocorrências que caem no horário silencioso. */
+export function skipQuietSlots(schedule: ReminderSchedule, candidate: Date): Date {
+  let slot = candidate;
+  for (let i = 0; i < 2000 && isQuietTime(slot, schedule); i += 1) slot = nextSlotAfter(schedule, slot);
+  return slot;
+}
+
+export function firstRunAt(schedule: ReminderSchedule, now: Date): Date {
+  const candidate = schedule.anchorAt.getTime() > now.getTime() ? schedule.anchorAt : nextSlotAfter(schedule, now);
+  return skipQuietSlots(schedule, candidate);
+}
+
+/** Depois de tratar uma ocorrência: próxima da grade depois de agora (sem rajada de atrasadas). */
+export function advanceAfterAck(schedule: ReminderSchedule, dueAt: Date, now: Date): Date {
+  const from = new Date(Math.max(now.getTime(), dueAt.getTime()));
+  return skipQuietSlots(schedule, nextSlotAfter(schedule, from));
+}
+
+export function snoozeUntil(schedule: ReminderSchedule, now: Date, minutes: number): Date {
+  return skipQuietSlots(schedule, new Date(now.getTime() + minutes * 60_000));
+}
+
+/** Chave estável da ocorrência: base da idempotência de "concluir/dispensar/adiar". */
+export function occurrenceKey(reminderId: number, dueAt: Date) {
+  return `r${reminderId}:${dueAt.getTime()}`;
+}
+
+export function describeInterval(minutes: number) {
+  if (minutes % 1440 === 0) return minutes === 1440 ? "todo dia" : `a cada ${minutes / 1440} dias`;
+  if (minutes % 60 === 0) return minutes === 60 ? "a cada 1 hora" : `a cada ${minutes / 60} horas`;
+  return `a cada ${minutes} min`;
+}

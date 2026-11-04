@@ -15,6 +15,13 @@
       "when": 1793543580166,
       "tag": "0001_curved_mandarin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1793762415843,
+      "tag": "0002_message_center",
+      "breakpoints": true
     }
   ]
 }

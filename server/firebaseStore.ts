@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import seedDbRaw from "../data/db.json";
+import type { MessageActionRecord, MessageDestination, MessageLot, MessageReminder, ReminderEvent } from "./messagingTypes";
 
 const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || "atacadolili";
 const FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY || "AIzaSyAIiafsVQkawBZrHVHDvoiZ72eTH0Cfb_U";
@@ -19,7 +20,18 @@ export interface LocalStoreData {
     chargeTemplates: number;
     charges: number;
     auditLogs: number;
+    messageDestinations: number;
+    messageLots: number;
+    messageReminders: number;
+    reminderEvents: number;
+    messageActions: number;
   };
+  /** Central de Mensagens (pequenos registros; sincronizados no documento meta). */
+  messageDestinations: MessageDestination[];
+  messageLots: MessageLot[];
+  messageReminders: MessageReminder[];
+  reminderEvents: ReminderEvent[];
+  messageActions: MessageActionRecord[];
   products: Array<{
     id: number;
     name: string;
@@ -161,7 +173,25 @@ function reviveDates(raw: any): LocalStoreData {
       chargeTemplates: raw?.counters?.chargeTemplates ?? 0,
       charges: raw?.counters?.charges ?? 0,
       auditLogs: raw?.counters?.auditLogs ?? 0,
+      messageDestinations: raw?.counters?.messageDestinations ?? 0,
+      messageLots: raw?.counters?.messageLots ?? 0,
+      messageReminders: raw?.counters?.messageReminders ?? 0,
+      reminderEvents: raw?.counters?.reminderEvents ?? 0,
+      messageActions: raw?.counters?.messageActions ?? 0,
     },
+    messageDestinations: (raw?.messageDestinations ?? []).map((d: any) => ({ ...d, createdAt: toDate(d.createdAt), updatedAt: toDate(d.updatedAt) })),
+    messageLots: (raw?.messageLots ?? []).map((l: any) => ({ ...l, createdAt: toDate(l.createdAt), updatedAt: toDate(l.updatedAt) })),
+    messageReminders: (raw?.messageReminders ?? []).map((r: any) => ({
+      ...r,
+      anchorAt: toDate(r.anchorAt),
+      nextDueAt: toNullableDate(r.nextDueAt),
+      pausedUntil: toNullableDate(r.pausedUntil),
+      lastAckAt: toNullableDate(r.lastAckAt),
+      createdAt: toDate(r.createdAt),
+      updatedAt: toDate(r.updatedAt),
+    })),
+    reminderEvents: (raw?.reminderEvents ?? []).map((e: any) => ({ ...e, dueAt: toDate(e.dueAt), createdAt: toDate(e.createdAt) })),
+    messageActions: (raw?.messageActions ?? []).map((a: any) => ({ ...a, createdAt: toDate(a.createdAt), updatedAt: toDate(a.updatedAt) })),
     products: (raw?.products ?? []).map((p: any) => ({
       ...p,
       createdAt: toDate(p.createdAt),
@@ -313,6 +343,33 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
     }
   }
 
+  // Central de Mensagens: o registro mais recente (updatedAt) vence; descartes são lógicos, então não ressuscitam.
+  const mergeById = <T extends { id: number; updatedAt: Date }>(left: T[], right: T[], keyOf: (item: T) => string | number = item => item.id): T[] => {
+    const map = new Map<string | number, T>();
+    for (const item of left) map.set(keyOf(item), item);
+    for (const item of right) {
+      const existing = map.get(keyOf(item));
+      if (!existing) {
+        map.set(keyOf(item), item);
+        changed = true;
+      } else if (item.updatedAt.getTime() > existing.updatedAt.getTime()) {
+        map.set(keyOf(item), item);
+        changed = true;
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.id - b.id);
+  };
+  const messageDestinations = mergeById(base.messageDestinations, incoming.messageDestinations);
+  const messageLots = mergeById(base.messageLots, incoming.messageLots);
+  const messageReminders = mergeById(base.messageReminders, incoming.messageReminders);
+  const messageActions = mergeById(base.messageActions, incoming.messageActions, action => action.idempotencyKey);
+  // Uma ocorrência de lembrete só pode ter um evento (chave única).
+  const reminderEvents = mergeById(
+    base.reminderEvents.map(event => ({ ...event, updatedAt: event.createdAt })),
+    incoming.reminderEvents.map(event => ({ ...event, updatedAt: event.createdAt })),
+    event => event.key,
+  ).map(({ updatedAt: _ignored, ...event }) => event as ReminderEvent);
+
   const products = Array.from(productMap.values()).sort((a, b) => a.id - b.id);
   const clients = Array.from(clientMap.values()).sort((a, b) => a.id - b.id);
   const orders = Array.from(orderMap.values()).sort((a, b) => b.id - a.id);
@@ -335,7 +392,17 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
       chargeTemplates: Math.max(base.counters.chargeTemplates, incoming.counters.chargeTemplates, ...chargeTemplates.map(t => t.id), 0),
       charges: Math.max(base.counters.charges, incoming.counters.charges, ...charges.map(c => c.id), 0),
       auditLogs: Math.max(base.counters.auditLogs, incoming.counters.auditLogs, ...auditLogs.map(a => a.id), 0),
+      messageDestinations: Math.max(base.counters.messageDestinations, incoming.counters.messageDestinations, ...messageDestinations.map(d => d.id), 0),
+      messageLots: Math.max(base.counters.messageLots, incoming.counters.messageLots, ...messageLots.map(l => l.id), 0),
+      messageReminders: Math.max(base.counters.messageReminders, incoming.counters.messageReminders, ...messageReminders.map(r => r.id), 0),
+      reminderEvents: Math.max(base.counters.reminderEvents, incoming.counters.reminderEvents, ...reminderEvents.map(e => e.id), 0),
+      messageActions: Math.max(base.counters.messageActions, incoming.counters.messageActions, ...messageActions.map(a => a.id), 0),
     },
+    messageDestinations,
+    messageLots,
+    messageReminders,
+    reminderEvents,
+    messageActions,
     products,
     clients,
     orders,
@@ -621,6 +688,11 @@ export async function pushStoreToFirestore(data: LocalStoreData, forceAll = fals
       chargeTemplates: data.chargeTemplates,
       charges: data.charges,
       auditLogs: data.auditLogs,
+      messageDestinations: data.messageDestinations,
+      messageLots: data.messageLots,
+      messageReminders: data.messageReminders,
+      reminderEvents: data.reminderEvents,
+      messageActions: data.messageActions,
     };
 
     const metaOk = await firestoreSetDoc("meta", {

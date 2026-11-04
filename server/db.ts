@@ -1055,6 +1055,19 @@ export async function getAuditLogs() {
   return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(100);
 }
 
+/** Auditoria para módulos fora deste arquivo (grava no banco ou no store local). */
+export async function recordAudit(actorUserId: number, action: string, entityType: string, entityId: string, metadata?: Record<string, unknown>) {
+  const db = await getDb();
+  await writeAudit(db, actorUserId, action, entityType, entityId, metadata);
+}
+
+/** Saldo atual de um pedido; null se não existir ou estiver cancelado. */
+export async function getOrderBalance(orderId: number): Promise<number | null> {
+  const order = await getOrderDetail(orderId);
+  if (!order || order.status === "cancelled") return null;
+  return Math.max(0, order.totalCents - order.paidCents);
+}
+
 export async function syncLocalToCloud() {
   const store = getStore();
   const ok = await pushStoreToFirestore(store, true);

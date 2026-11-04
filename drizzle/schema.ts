@@ -6,6 +6,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
 
@@ -158,6 +159,105 @@ export const auditLogs = mysqlTable(
   table => ({
     entityIdx: index("audit_entity_idx").on(table.entityType, table.entityId),
     dateIdx: index("audit_date_idx").on(table.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Central de Mensagens: destinos, lotes, lembretes, eventos e histórico de ações.
+// Lembretes só notificam a administradora; "api_confirmed" só existiria com
+// integração oficial (não implementada).
+// ---------------------------------------------------------------------------
+
+export const messageDestinations = mysqlTable("message_destinations", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 80 }).notNull(),
+  kind: varchar("kind", { length: 20 }).default("group").notNull(),
+  description: text("description"),
+  inviteUrl: text("inviteUrl"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const messageLots = mysqlTable(
+  "message_lots",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    productId: int("productId").notNull(),
+    name: varchar("name", { length: 160 }),
+    goalPieces: int("goalPieces"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    productUnique: uniqueIndex("message_lots_product_unique").on(table.productId),
+  }),
+);
+
+export const messageReminders = mysqlTable(
+  "message_reminders",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    kind: varchar("kind", { length: 30 }).notNull(),
+    title: varchar("title", { length: 120 }).notNull(),
+    productId: int("productId"),
+    destinationId: int("destinationId"),
+    intervalMinutes: int("intervalMinutes").notNull(),
+    anchorAt: timestamp("anchorAt").notNull(),
+    nextDueAt: timestamp("nextDueAt"),
+    status: varchar("status", { length: 20 }).default("active").notNull(),
+    pausedUntil: timestamp("pausedUntil"),
+    timezone: varchar("timezone", { length: 64 }).notNull(),
+    quietStart: varchar("quietStart", { length: 5 }),
+    quietEnd: varchar("quietEnd", { length: 5 }),
+    lastAckAt: timestamp("lastAckAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    statusDueIdx: index("message_reminders_status_due_idx").on(table.status, table.nextDueAt),
+  }),
+);
+
+export const messageReminderEvents = mysqlTable(
+  "message_reminder_events",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    reminderId: int("reminderId").notNull(),
+    eventKey: varchar("eventKey", { length: 120 }).notNull(),
+    dueAt: timestamp("dueAt").notNull(),
+    outcome: varchar("outcome", { length: 20 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    keyUnique: uniqueIndex("message_reminder_events_key_unique").on(table.eventKey),
+    reminderIdx: index("message_reminder_events_reminder_idx").on(table.reminderId),
+  }),
+);
+
+export const messageActions = mysqlTable(
+  "message_actions",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    kind: varchar("kind", { length: 20 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull(),
+    destinationType: varchar("destinationType", { length: 10 }).notNull(),
+    destinationId: int("destinationId"),
+    clientId: int("clientId"),
+    orderId: int("orderId"),
+    productId: int("productId"),
+    reminderId: int("reminderId"),
+    title: varchar("title", { length: 200 }).notNull(),
+    message: text("message").notNull(),
+    idempotencyKey: varchar("idempotencyKey", { length: 120 }).notNull(),
+    statusLog: text("statusLog").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    keyUnique: uniqueIndex("message_actions_key_unique").on(table.idempotencyKey),
+    orderIdx: index("message_actions_order_idx").on(table.orderId),
+    dateIdx: index("message_actions_date_idx").on(table.updatedAt),
   }),
 );
 

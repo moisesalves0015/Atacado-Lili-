@@ -2,6 +2,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { uploadProductPhoto } from "@/lib/firebase";
+import { csvFromRows, downloadText, shareReportOnWhatsApp } from "@/lib/shareTools";
+import { formatDate, formatDateTime, formatMoney } from "@shared/format";
+import { buildReportText as buildReport, fillChargeTemplate as templateMessage } from "@shared/messaging";
 import { toast } from "sonner";
 import {
   Archive,
@@ -38,7 +41,8 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import MessageCenter, { type MessageIntent } from "@/components/MessageCenter";
 
 type Section = "dashboard" | "products" | "product" | "clients" | "orders" | "charges" | "finance" | "reports" | "settings";
 type ProductForm = { id: number | null; name: string; price: string; category: string; description: string; imageUrl: string };
@@ -46,9 +50,6 @@ type ClientForm = { id: number | null; name: string; phone: string; notes: strin
 type SaleItem = { productId: string; quantity: string; unitPriceCents?: number };
 type VcfContact = { name: string; phone: string };
 
-const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const dateFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
-const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 const navItems: Array<{ id: Section; label: string; icon: typeof LayoutDashboard }> = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -75,19 +76,8 @@ function centsToInput(cents: number) {
   return (cents / 100).toFixed(2).replace(".", ",");
 }
 
-function formatMoney(cents = 0) {
-  return currency.format(cents / 100);
-}
 
-function formatDate(date?: string | Date | null) {
-  if (!date) return "—";
-  return dateFormatter.format(new Date(date));
-}
 
-function formatDateTime(date?: string | Date | null) {
-  if (!date) return "—";
-  return dateTimeFormatter.format(new Date(date));
-}
 
 function statusLabel(status: string) {
   return ({ pending: "Pendente", partial: "Parcial", paid: "Pago", overdue: "Vencido", cancelled: "Cancelado" } as Record<string, string>)[status] ?? status;
@@ -105,163 +95,14 @@ function parseVcf(raw: string): VcfContact[] {
   }).filter(contact => contact.name && contact.phone);
 }
 
-function templateMessage(body: string, order: any, valueOverride?: number) {
-  const product = order.items?.map((item: any) => `${item.productName} (${item.quantity})`).join(", ") || "seu pedido";
-  const pending = valueOverride ?? Math.max(0, order.totalCents - order.paidCents);
-  return body.replaceAll("{nome_cliente}", order.client?.name ?? "cliente")
-    .replaceAll("{produto}", product)
-    .replaceAll("{numero_pedido}", order.code ?? "")
-    .replaceAll("{valor_pendente}", formatMoney(pending))
-    .replaceAll("{valor_pago}", formatMoney(order.paidCents ?? 0))
-    .replaceAll("{data_vencimento}", formatDate(order.dueDate));
-}
 
-function buildReport(rows: any[]) {
-  const groups = new Map<string, any[]>();
-  for (const row of rows) {
-    const key = `${row.productId}-${row.unitPriceCents}`;
-    groups.set(key, [...(groups.get(key) ?? []), row]);
-  }
-  const sections: string[] = [];
-  for (const group of groups.values()) {
-    const first = group[0];
-    const lines = [`${first.productName} ${formatMoney(first.unitPriceCents)}`];
-    for (const row of group) lines.push(`${row.clientName} – ${row.quantity}\n${row.phone}`);
-    sections.push(lines.join("\n\n"));
-  }
-  const clients = new Set(rows.map(row => row.clientId)).size;
-  const pieces = rows.reduce((sum, row) => sum + row.quantity, 0);
-  const total = rows.reduce((sum, row) => sum + row.totalCents, 0);
-  sections.push(`Total de clientes: ${clients}\nTotal de peças: ${pieces}\nValor total vendido: ${formatMoney(total)}`);
-  return sections.join("\n\n");
-}
 
-function downloadText(name: string, content: string, type = "text/plain;charset=utf-8") {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = name;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
 
-function csvFromRows(rows: any[]) {
-  const header = "Produto;Preço;Cliente;Quantidade;Telefone;Total;Data";
-  const lines = rows.map(row => [row.productName, formatMoney(row.unitPriceCents), row.clientName, row.quantity, row.phone, formatMoney(row.totalCents), formatDate(row.orderDate)].map(value => `"${String(value).replaceAll('"', '""')}"`).join(";"));
-  return [header, ...lines].join("\n");
-}
 
-function dataUrlToFileSync(dataUrl: string, baseName: string): File | null {
-  try {
-    const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
-    if (!match) return null;
-    const mime = match[1];
-    const b64 = match[2];
-    const binStr = atob(b64);
-    const len = binStr.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binStr.charCodeAt(i);
-    }
-    const ext = mime.includes("png") ? "png" : "jpg";
-    const safeName = baseName.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "produto";
-    return new File([bytes], `${safeName}.${ext}`, { type: mime });
-  } catch {
-    return null;
-  }
-}
 
-function copyTextSync(text: string) {
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.top = "-9999px";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-  } catch {
-    // Ignore fallback copy error
-  }
-  navigator.clipboard?.writeText(text).catch(() => {});
-}
 
-async function imageUrlToBlob(imageUrl: string): Promise<Blob> {
-  const res = await fetch(imageUrl);
-  return await res.blob();
-}
 
-async function imageUrlToPngBlob(imageUrl: string): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth || img.width || 800;
-      canvas.height = img.naturalHeight || img.height || 800;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Canvas context unavailable"));
-        return;
-      }
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob(blob => {
-        if (blob) resolve(blob);
-        else reject(new Error("PNG conversion failed"));
-      }, "image/png");
-    };
-    img.onerror = () => reject(new Error("Failed to load image"));
-    img.src = imageUrl;
-  });
-}
 
-async function shareReportOnWhatsApp(text: string, product?: any) {
-  if (!text) return;
-
-  // Always copy the full report text synchronously first (keeps user gesture intact)
-  copyTextSync(text);
-
-  if (product?.imageUrl) {
-    try {
-      let file = dataUrlToFileSync(product.imageUrl, product.name || "produto");
-      if (!file) {
-        const blob = await imageUrlToBlob(product.imageUrl);
-        const ext = blob.type.includes("png") ? "png" : "jpg";
-        const safeName = (product.name || "produto").toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "produto";
-        file = new File([blob], `${safeName}.${ext}`, { type: blob.type || "image/jpeg" });
-      }
-
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (isMobile && typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-        // IMPORTANT: Do NOT pass `title` here; passing only `{ files, text }` ensures WhatsApp
-        // uses `text` (the full multi-line report) as the photo caption (`legenda`).
-        await navigator.share({
-          files: [file],
-          text,
-        });
-        return;
-      }
-
-      // Desktop fallback: copy PNG image to clipboard and open WhatsApp with the full report text
-      try {
-        if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-          const pngBlob = await imageUrlToPngBlob(product.imageUrl);
-          await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
-          toast.success("Texto preenchido no WhatsApp e foto copiada! Aperte Ctrl+V na conversa para enviar a foto com a legenda.");
-        }
-      } catch {
-        // Ignore clipboard image error
-      }
-    } catch (err: any) {
-      if (err?.name === "AbortError") return;
-    }
-  }
-
-  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
-}
 
 function StatCard({ label, value, helper, icon: Icon, accent = "teal" }: { label: string; value: string; helper?: string; icon: typeof Package; accent?: string }) {
   return <div className={`stat-card accent-${accent}`}>
@@ -313,6 +154,9 @@ export default function Home() {
   const [reportProductId, setReportProductId] = useState<string>("");
   const [orderEditor, setOrderEditor] = useState<{ clientId: string; notes: string; items: SaleItem[] } | null>(null);
   const [editingOrder, setEditingOrder] = useState(false);
+  const [showMessageCenter, setShowMessageCenter] = useState(false);
+  const [messageIntent, setMessageIntent] = useState<MessageIntent | null>(null);
+  const notifiedKeys = useRef<Set<string>>(new Set());
 
   const utils = trpc.useUtils();
   const enabled = Boolean(user);
@@ -326,6 +170,7 @@ export default function Home() {
   const templatesQuery = trpc.charges.templates.useQuery(undefined, { enabled });
   const auditQuery = trpc.settings.audit.useQuery(undefined, { enabled: enabled && section === "settings" });
   const reportsQuery = trpc.reports.rows.useQuery({ productId: reportProductId ? Number(reportProductId) : undefined }, { enabled: enabled && section === "reports" });
+  const dueRemindersQuery = trpc.messages.dueReminders.useQuery(undefined, { enabled, refetchInterval: 60_000, refetchOnWindowFocus: true });
 
   const createProduct = trpc.products.create.useMutation();
   const updateProduct = trpc.products.update.useMutation();
@@ -357,6 +202,7 @@ export default function Home() {
   const clients = (clientsQuery.data ?? []) as any[];
   const orders = (ordersQuery.data ?? []) as any[];
   const templates = (templatesQuery.data ?? []) as any[];
+  const dueReminders = (dueRemindersQuery.data ?? []) as any[];
   const dashboard: any = dashboardQuery.data;
   const selectedOrder: any = orderDetailQuery.data;
   const vcfInvalidCount = vcfPreview.filter(contact => contact.phone.replace(/\D/g, "").length < 8).length;
@@ -365,6 +211,49 @@ export default function Home() {
     return total + (product ? product.priceCents * Math.max(0, Number(item.quantity) || 0) : 0);
   }, 0), [products, sale.items]);
   const reportText = useMemo(() => buildReport((reportsQuery.data ?? []) as any[]), [reportsQuery.data]);
+
+  const openMessageCenter = (intent?: MessageIntent) => {
+    if (intent) setMessageIntent(intent);
+    setShowMessageCenter(true);
+  };
+
+  const reviewDueReminder = (reminder: any) => {
+    openMessageCenter({
+      tab: reminder.kind === "charges_review" ? "charges" : "update",
+      productId: reminder.productId ?? quickProductId,
+      destinationId: reminder.destinationId ?? null,
+      reminder: { id: reminder.id, key: reminder.key, title: reminder.title },
+    });
+  };
+
+  useEffect(() => {
+    for (const reminder of dueReminders) {
+      if (!reminder?.key || notifiedKeys.current.has(reminder.key)) continue;
+      notifiedKeys.current.add(reminder.key);
+      toast.info(`Lembrete: ${reminder.title}`, {
+        description: "Abra a Central de Mensagens para revisar os dados atuais antes de enviar.",
+        action: {
+          label: "Revisar",
+          onClick: () => reviewDueReminder(reminder),
+        },
+      });
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try {
+          const n = new Notification(`Lembrete · ${reminder.title}`, {
+            body: "Clique para revisar e preparar a mensagem na Central.",
+            tag: reminder.key,
+          });
+          n.onclick = () => {
+            window.focus();
+            reviewDueReminder(reminder);
+            n.close();
+          };
+        } catch {
+          // Alguns navegadores móveis restringem new Notification fora de Service Worker
+        }
+      }
+    }
+  }, [dueReminders]);
 
   const refresh = async () => {
     await Promise.all([
@@ -376,6 +265,8 @@ export default function Home() {
       utils.orders.detail.invalidate(),
       utils.charges.list.invalidate(),
       utils.reports.rows.invalidate(),
+      utils.messages.overview.invalidate(),
+      utils.messages.dueReminders.invalidate(),
     ]);
   };
 
@@ -594,6 +485,9 @@ export default function Home() {
         onMinimize={() => setIsQuickSaleHome(false)}
         onAddProduct={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }}
         onAddClient={() => { setClientForm(emptyClient); setShowClientForm(true); }}
+        onOpenMessages={() => openMessageCenter(quickProductId ? { tab: "update", productId: quickProductId } : undefined)}
+        dueReminders={dueReminders}
+        onReviewReminder={reviewDueReminder}
       />
     ) : (
       <>
@@ -601,12 +495,13 @@ export default function Home() {
           <div className="sidebar-brand"><div className="brand-mark">VA</div><div><strong>Venda Atacado</strong><span>controle pessoal</span></div><button className="sidebar-close" onClick={() => setMobileMenu(false)}><X size={18} /></button></div>
           <div className="sidebar-context"><span className="context-dot" /> operação ativa <span className="context-lock">admin</span></div>
           <button className="vitrine-launch-btn" onClick={() => setIsQuickSaleHome(true)}><Maximize2 size={16} /><span>Home de Registro (Vitrine)</span></button>
+          <button className="nav-item" onClick={() => { setMobileMenu(false); openMessageCenter(); }}><MessageCircle size={18} /><span>Central de mensagens</span>{dueReminders.length ? <em>{dueReminders.length}</em> : null}</button>
           <nav>{navItems.map(item => { const Icon = item.icon; return <button key={item.id} className={`nav-item ${section === item.id || (item.id === "products" && section === "product") ? "active" : ""}`} onClick={() => navigate(item.id)}><Icon size={18} /><span>{item.label}</span>{item.id === "orders" && dashboard?.stats?.pendingOrders ? <em>{dashboard.stats.pendingOrders}</em> : null}</button>; })}</nav>
           <div className="sidebar-bottom"><div className="admin-card"><div className="avatar">{(user.name ?? "A").charAt(0).toUpperCase()}</div><div><strong>{user.name ?? "Administradora"}</strong><span>acesso total</span></div><button onClick={() => logout()} title="Sair"><LogOut size={16} /></button></div><div className="sidebar-note">Dados protegidos e salvos no banco do projeto.</div></div>
         </aside>
         {mobileMenu && <button className="sidebar-scrim" onClick={() => setMobileMenu(false)} aria-label="Fechar menu" />}
         <main className="main-shell">
-          <header className="topbar"><div className="topbar-left"><button className="mobile-menu-button" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><div className="eyebrow">{subtitle}</div><h1>{title}</h1></div></div><div className="topbar-actions"><button className="icon-button" onClick={() => refresh()} title="Atualizar dados"><RefreshCw size={17} /></button><Button variant="outline" onClick={() => setIsQuickSaleHome(true)}><Maximize2 size={16} /> Modo Vitrine</Button><Button onClick={() => navigate("orders")}><Plus size={17} /> Nova venda</Button></div></header>
+          <header className="topbar"><div className="topbar-left"><button className="mobile-menu-button" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><div><div className="eyebrow">{subtitle}</div><h1>{title}</h1></div></div><div className="topbar-actions"><button className="icon-button" onClick={() => refresh()} title="Atualizar dados"><RefreshCw size={17} /></button><Button variant="outline" onClick={() => openMessageCenter()}><MessageCircle size={16} /> Mensagens{dueReminders.length ? ` (${dueReminders.length})` : ""}</Button><Button variant="outline" onClick={() => setIsQuickSaleHome(true)}><Maximize2 size={16} /> Modo Vitrine</Button><Button onClick={() => navigate("orders")}><Plus size={17} /> Nova venda</Button></div></header>
 
           {section === "dashboard" && <DashboardView dashboard={dashboard} loading={dashboardQuery.isLoading} navigate={navigate} onOrder={setSelectedOrderId} />}
           {section === "products" && <ProductsView products={products} search={productSearch} setSearch={setProductSearch} onAdd={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }} onOpen={(id: number) => { setSelectedProductId(id); navigate("product"); }} onEdit={(product: any) => { setProductForm({ id: product.id, name: product.name, price: centsToInput(product.priceCents), category: product.category ?? "", description: product.description ?? "", imageUrl: product.imageUrl ?? "" }); setProductImageFile(null); setShowProductForm(true); }} onDuplicate={(product: any) => run(() => duplicateProduct.mutateAsync({ id: product.id }), "Produto duplicado")} onToggle={(product: any) => run(() => updateProduct.mutateAsync({ id: product.id, active: !product.active }), product.active ? "Produto encerrado" : "Produto reativado")} />}
@@ -626,6 +521,12 @@ export default function Home() {
     {showVcf && <Modal title="Importar contatos VCF" onClose={() => setShowVcf(false)}><div className="import-summary"><div><strong>{vcfPreview.length}</strong><span>contatos na prévia</span></div><div><strong>{new Set(vcfPreview.map(contact => contact.phone.replace(/\D/g, ""))).size}</strong><span>telefones únicos</span></div><div className={vcfInvalidCount ? "import-warning" : ""}><strong>{vcfInvalidCount}</strong><span>telefones curtos ignorados</span></div></div>{vcfInvalidCount > 0 && <p className="microcopy import-warning-text">Alguns cartões possuem códigos ou telefones incompletos. Eles serão ignorados; os contatos válidos serão importados normalmente.</p>}<div className="vcf-list">{vcfPreview.map((contact, index) => <div className={`vcf-row ${contact.phone.replace(/\D/g, "").length < 8 ? "invalid-row" : ""}`} key={`${contact.phone}-${index}`}><span>{contact.name}</span><small>{contact.phone}{contact.phone.replace(/\D/g, "").length < 8 ? " · ignorado" : ""}</small></div>)}</div><div className="modal-actions"><Button variant="outline" onClick={() => setShowVcf(false)}>Cancelar</Button><Button disabled={!vcfPreview.length || vcfInvalidCount === vcfPreview.length || importVcf.isPending} onClick={() => run(async () => { const result = await importVcf.mutateAsync({ contacts: vcfPreview }); if (result.invalid) toast.info(`${result.invalid} contato(s) foram ignorado(s) por telefone insuficiente`); setShowVcf(false); }, "Contatos válidos importados")}>{importVcf.isPending ? "Importando contatos..." : "Importar contatos válidos"}</Button></div></Modal>}
     {chargeDraft && <Modal title="Preparar cobrança" onClose={() => setChargeDraft(null)}><div className="charge-recipient"><div className="avatar">{chargeDraft.order.client?.name?.charAt(0) ?? "C"}</div><div><strong>{chargeDraft.order.client?.name}</strong><span>{chargeDraft.order.client?.phone} · saldo {formatMoney(Math.max(0, chargeDraft.order.totalCents - chargeDraft.order.paidCents))}</span></div></div><label>Modelo<select value={chargeDraft.templateId} onChange={event => { const id = Number(event.target.value); const template = templates.find(item => item.id === id); if (template) setChargeDraft({ ...chargeDraft, templateId: id, message: templateMessage(template.body, chargeDraft.order) }); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Mensagem<textarea className="message-editor" value={chargeDraft.message} onChange={event => setChargeDraft({ ...chargeDraft, message: event.target.value })} /></label><p className="microcopy">O botão abre o WhatsApp com o texto preenchido. O envio final depende da sua confirmação dentro do WhatsApp.</p><div className="modal-actions"><Button variant="outline" onClick={() => navigator.clipboard?.writeText(chargeDraft.message).then(() => toast.success("Mensagem copiada"))}><Copy size={16} /> Copiar</Button><Button onClick={submitCharge}><MessageCircle size={16} /> Abrir WhatsApp</Button></div></Modal>}
     {selectedOrderId && <OrderDrawer order={selectedOrder} clients={clients} products={products} editor={orderEditor} setEditor={setOrderEditor} editing={editingOrder} setEditing={setEditingOrder} paymentAmount={paymentAmount} setPaymentAmount={setPaymentAmount} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onClose={() => setSelectedOrderId(null)} onSaveEdit={submitOrderEdit} onPayment={submitPayment} onCancel={() => run(() => cancelOrder.mutateAsync({ id: selectedOrderId }), "Pedido cancelado")} onCharge={openCharge} />}
+    <MessageCenter
+      open={showMessageCenter}
+      onClose={() => setShowMessageCenter(false)}
+      intent={messageIntent}
+      onIntentHandled={() => setMessageIntent(null)}
+    />
   </div>;
 }
 
@@ -645,6 +546,9 @@ function QuickSaleHomeView({
   onMinimize,
   onAddProduct,
   onAddClient,
+  onOpenMessages,
+  dueReminders = [],
+  onReviewReminder,
 }: any) {
   const activeProducts = useMemo(() => {
     const q = vitrineSearch.trim().toLowerCase();
@@ -714,6 +618,17 @@ function QuickSaleHomeView({
           </div>
         </div>
         <div className="quick-home-icons">
+          <button
+            type="button"
+            className="mini-pill-btn"
+            onClick={onOpenMessages}
+            title="Central de mensagens e lembretes"
+            aria-label="Central de mensagens"
+          >
+            <MessageCircle size={15} />
+            <span>Mensagens</span>
+            {dueReminders.length > 0 && <em>{dueReminders.length}</em>}
+          </button>
           <button type="button" className="mini-icon-btn" onClick={onAddProduct} title="Novo produto">
             <PackagePlus size={16} />
           </button>
@@ -725,6 +640,21 @@ function QuickSaleHomeView({
           </button>
         </div>
       </header>
+
+      {dueReminders.length > 0 && (
+        <div className="quick-due-banner">
+          <div>
+            <BellRing size={14} />
+            <span>
+              <strong>Lembrete pendente:</strong> {dueReminders[0].title}
+              {dueReminders.length > 1 ? ` (+${dueReminders.length - 1})` : ""}
+            </span>
+          </div>
+          <button type="button" onClick={() => onReviewReminder(dueReminders[0])}>
+            Revisar na Central
+          </button>
+        </div>
+      )}
 
       <div className="quick-home-body">
         <section
@@ -938,7 +868,8 @@ function FinanceView({ orders, onOpen, onCharge }: any) {
   return <div className="content-stack"><SectionHeader eyebrow="controle financeiro" title="Financeiro" description="Veja o que entrou, o que está em aberto e onde agir primeiro." /><div className="stats-grid finance-stats"><StatCard label="Recebido" value={formatMoney(received)} helper="soma dos pagamentos registrados" icon={Check} accent="sage" /><StatCard label="Saldo em aberto" value={formatMoney(pending)} helper="pedidos pendentes e parciais" icon={Wallet} accent="coral" /><StatCard label="Vencidos" value={String(overdue.length)} helper="com data vencida e saldo" icon={BellRing} accent="gold" /><StatCard label="Pedidos válidos" value={String(valid.length)} helper="cancelados ficam no histórico" icon={ClipboardList} /></div><section className="panel"><div className="panel-heading"><div><div className="eyebrow">visão de recebimentos</div><h3>Pedidos que pedem atenção</h3></div></div>{orders.filter((order: any) => order.status !== "paid" && order.status !== "cancelled").length ? <div className="table-wrap finance-table"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Total</th><th>Recebido</th><th>Saldo</th><th>Status</th><th /></tr></thead><tbody>{orders.filter((order: any) => order.status !== "paid" && order.status !== "cancelled").map((order: any) => <tr key={order.id}><td><strong>{order.code}</strong><small>{formatDate(order.orderDate)}</small></td><td>{order.client.name}<small>{order.client.phone}</small></td><td>{formatMoney(order.totalCents)}</td><td>{formatMoney(order.paidCents)}</td><td className="text-coral">{formatMoney(Math.max(0, order.totalCents - order.paidCents))}</td><td><StatusBadge status={order.status} /></td><td><div className="table-actions"><button onClick={() => onOpen(order.id)}>Abrir</button><button className="whatsapp-mini" onClick={() => onCharge(order)}><MessageCircle size={14} /> Cobrar</button></div></td></tr>)}</tbody></table></div> : <EmptyState icon={Check} title="Tudo em dia" description="Não há pedidos pendentes ou vencidos neste momento." />}</section></div>;
 }
 
-function ReportsView({ products, productId, setProductId, rows, text, loading }: any) {
+function ReportsView({ products, productId, setProductId, rows, loading }: any) {
+  const [includePhones, setIncludePhones] = useState(true);
   const selectedProduct = useMemo(() => {
     if (productId) {
       return products.find((p: any) => String(p.id) === String(productId)) ?? null;
@@ -960,19 +891,19 @@ function ReportsView({ products, productId, setProductId, rows, text, loading }:
       return {
         product,
         rows: prodRows,
-        reportText: buildReport(prodRows),
+        reportText: buildReport(prodRows, { includePhones }),
       };
     });
-  }, [rows, products]);
+  }, [rows, products, includePhones]);
 
   const activeReportText = useMemo(() => {
     if (productId && perProductReports.length === 1) {
       return perProductReports[0].reportText;
     }
-    return text;
-  }, [productId, perProductReports, text]);
+    return buildReport(rows, { includePhones });
+  }, [productId, perProductReports, rows, includePhones]);
 
-  return <div className="content-stack"><SectionHeader eyebrow="para enviar às chefes" title="Relatórios" description="Escolha um produto ou veja o consolidado geral. O texto sai no mesmo padrão que você já usa." /><section className="report-builder"><div className="report-filters"><label>Produto<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">Todos os produtos</option>{products.map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label></div><div className="report-summary"><span><strong>{rows.length}</strong> linhas de venda</span><span><strong>{rows.reduce((sum: number, row: any) => sum + row.quantity, 0)}</strong> peças</span><span><strong>{formatMoney(rows.reduce((sum: number, row: any) => sum + row.totalCents, 0))}</strong> total</span></div></section><section className="report-layout"><div className="panel report-preview-panel"><div className="panel-heading"><div><div className="eyebrow">prévia em texto</div><h3>Relatório pronto</h3></div><div className="report-actions"><Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(activeReportText).then(() => toast.success("Relatório copiado"))} disabled={!rows.length}><Copy size={14} /> Copiar</Button><Button size="sm" onClick={() => shareReportOnWhatsApp(selectedProduct ? buildReport(rows.filter((r: any) => r.productId === selectedProduct.id)) : activeReportText, selectedProduct)} disabled={!rows.length}><MessageCircle size={14} /> {selectedProduct?.imageUrl ? "WhatsApp (Foto + Legenda)" : "WhatsApp"}</Button></div></div>{perProductReports.length > 0 && <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>{perProductReports.map(({ product, reportText }) => <div key={product.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "10px 12px", borderRadius: "11px", background: "#eef7f3", border: "1px solid #cde3dd" }}><div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "9px", border: "1px solid var(--line)", flexShrink: 0 }} /> : <div className="row-avatar">{product.name.charAt(0)}</div>}<div style={{ minWidth: 0 }}><strong style={{ display: "block", fontSize: "13px", color: "var(--teal-deep)" }}>{product.name}</strong><span style={{ fontSize: "11px", color: "var(--muted)" }}>Foto + relatório deste produto como legenda</span></div></div><Button size="sm" onClick={() => shareReportOnWhatsApp(reportText, product)}><MessageCircle size={14} /> Enviar Foto + Legenda</Button></div>)}</div>}{loading ? <div className="loading-panel"><RefreshCw className="spin" size={18} /> Gerando relatório...</div> : <pre className="report-preview">{rows.length ? activeReportText : "Selecione um produto ou registre pedidos para gerar o relatório."}</pre>}<div className="report-footer-actions"><Button onClick={() => downloadText("relatorio-venda-atacado.txt", activeReportText)} disabled={!rows.length}><Download size={15} /> Baixar TXT</Button><Button variant="outline" onClick={() => window.print()} disabled={!rows.length}><FileText size={15} /> Gerar PDF</Button><Button variant="outline" onClick={() => downloadText("relatorio-venda-atacado.csv", csvFromRows(rows), "text/csv;charset=utf-8")} disabled={!rows.length}><Download size={15} /> Exportar Excel</Button></div></div><aside className="report-note"><div className="note-icon"><FileText size={18} /></div><strong>Formato preservado</strong><p>O nome e quantidade ficam juntos na primeira linha. O telefone entra na linha seguinte, com blocos separados por uma linha em branco.</p><span>Cancelados ficam fora por padrão.</span></aside></section></div>;
+  return <div className="content-stack"><SectionHeader eyebrow="para enviar às chefes" title="Relatórios" description="Escolha um produto ou veja o consolidado geral. O texto sai no mesmo padrão que você já usa." /><section className="report-builder"><div className="report-filters"><label>Produto<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">Todos os produtos</option>{products.map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label className="mc-check" style={{ alignSelf: "end", minHeight: "40px" }}><input type="checkbox" checked={includePhones} onChange={event => setIncludePhones(event.target.checked)} /> <span>Incluir telefones (separação)</span></label></div><div className="report-summary"><span><strong>{rows.length}</strong> linhas de venda</span><span><strong>{rows.reduce((sum: number, row: any) => sum + row.quantity, 0)}</strong> peças</span><span><strong>{formatMoney(rows.reduce((sum: number, row: any) => sum + row.totalCents, 0))}</strong> total</span></div></section><section className="report-layout"><div className="panel report-preview-panel"><div className="panel-heading"><div><div className="eyebrow">prévia em texto</div><h3>Relatório pronto</h3></div><div className="report-actions"><Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(activeReportText).then(() => toast.success("Relatório copiado"))} disabled={!rows.length}><Copy size={14} /> Copiar</Button><Button size="sm" onClick={() => shareReportOnWhatsApp(selectedProduct ? buildReport(rows.filter((r: any) => r.productId === selectedProduct.id), { includePhones }) : activeReportText, selectedProduct)} disabled={!rows.length}><MessageCircle size={14} /> {selectedProduct?.imageUrl ? "WhatsApp (Foto + Legenda)" : "WhatsApp"}</Button></div></div>{perProductReports.length > 0 && <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>{perProductReports.map(({ product, reportText }) => <div key={product.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "10px 12px", borderRadius: "11px", background: "#eef7f3", border: "1px solid #cde3dd" }}><div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>{product.imageUrl ? <img src={product.imageUrl} alt={product.name} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "9px", border: "1px solid var(--line)", flexShrink: 0 }} /> : <div className="row-avatar">{product.name.charAt(0)}</div>}<div style={{ minWidth: 0 }}><strong style={{ display: "block", fontSize: "13px", color: "var(--teal-deep)" }}>{product.name}</strong><span style={{ fontSize: "11px", color: "var(--muted)" }}>Foto + relatório deste produto como legenda</span></div></div><Button size="sm" onClick={() => shareReportOnWhatsApp(reportText, product)}><MessageCircle size={14} /> Enviar Foto + Legenda</Button></div>)}</div>}{loading ? <div className="loading-panel"><RefreshCw className="spin" size={18} /> Gerando relatório...</div> : <pre className="report-preview">{rows.length ? activeReportText : "Selecione um produto ou registre pedidos para gerar o relatório."}</pre>}<div className="report-footer-actions"><Button onClick={() => downloadText("relatorio-venda-atacado.txt", activeReportText)} disabled={!rows.length}><Download size={15} /> Baixar TXT</Button><Button variant="outline" onClick={() => window.print()} disabled={!rows.length}><FileText size={15} /> Gerar PDF</Button><Button variant="outline" onClick={() => downloadText("relatorio-venda-atacado.csv", csvFromRows(rows, includePhones), "text/csv;charset=utf-8")} disabled={!rows.length}><Download size={15} /> Exportar Excel</Button></div></div><aside className="report-note"><div className="note-icon"><FileText size={18} /></div><strong>Formato preservado</strong><p>O nome e quantidade ficam juntos na primeira linha. O telefone entra na linha seguinte quando marcado, com blocos separados por uma linha em branco.</p><span>Cancelados ficam fora por padrão.</span></aside></section></div>;
 }
 
 function SettingsView({ user, audit, onExport, onSyncCloud, syncing }: any) {

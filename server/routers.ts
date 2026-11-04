@@ -5,6 +5,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
+import { getMessagingService } from "./messagingRuntime";
+import { CLIENT_SETTABLE_STATUSES } from "../shared/messaging";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   cancelOrder,
@@ -133,6 +135,18 @@ export const appRouter = router({
 
   reports: router({
     rows: adminProcedure.input(z.object({ productId: z.number().int().positive().optional(), from: z.string().optional(), to: z.string().optional(), orderIds: z.array(z.number().int().positive()).optional() })).query(({ input }) => getReportRows(input)),
+  }),
+
+  // Central de Mensagens: preparação, lembretes e histórico. Nada é enviado automaticamente.
+  messages: router({
+    overview: adminProcedure.query(async () => (await getMessagingService()).overview()),
+    saveDestination: adminProcedure.input(z.object({ id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(80), description: z.string().max(280).optional(), inviteUrl: z.string().trim().max(300).optional(), active: z.boolean().optional() })).mutation(async ({ ctx, input }) => (await getMessagingService()).saveDestination(ctx.user.id, input)),
+    saveLot: adminProcedure.input(z.object({ productId: z.number().int().positive(), name: z.string().max(160).optional(), goalPieces: z.number().int().min(1).max(1_000_000).nullable() })).mutation(async ({ ctx, input }) => (await getMessagingService()).saveLot(ctx.user.id, input)),
+    saveReminder: adminProcedure.input(z.object({ id: z.number().int().positive().optional(), kind: z.enum(["group_update", "charges_review"]), title: z.string().max(120).optional(), productId: z.number().int().positive().nullable().optional(), destinationId: z.number().int().positive().nullable().optional(), intervalMinutes: z.number().int().min(5).max(7 * 24 * 60), startAt: z.coerce.date().optional(), timezone: z.string().trim().min(1).max(64), quietStart: z.string().max(5).nullable().optional(), quietEnd: z.string().max(5).nullable().optional() })).mutation(async ({ ctx, input }) => (await getMessagingService()).saveReminder(ctx.user.id, input)),
+    setReminderStatus: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["active", "paused", "completed", "discarded"]), pauseMinutes: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => (await getMessagingService()).setReminderStatus(ctx.user.id, input)),
+    dueReminders: adminProcedure.query(async () => (await getMessagingService()).dueReminders()),
+    ackReminder: adminProcedure.input(z.object({ id: z.number().int().positive(), key: z.string().min(3).max(120), outcome: z.enum(["completed", "dismissed", "snoozed"]), snoozeMinutes: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => (await getMessagingService()).ackReminder(ctx.user.id, input)),
+    recordAction: adminProcedure.input(z.object({ idempotencyKey: z.string().min(8).max(120), kind: z.enum(["group_update", "charge", "report"]), status: z.enum(CLIENT_SETTABLE_STATUSES), destinationType: z.enum(["group", "client", "none"]), destinationId: z.number().int().positive().nullable().optional(), clientId: z.number().int().positive().nullable().optional(), orderId: z.number().int().positive().nullable().optional(), productId: z.number().int().positive().nullable().optional(), reminderId: z.number().int().positive().nullable().optional(), title: z.string().trim().min(1).max(200), message: z.string().trim().min(1).max(2000), expectedBalanceCents: z.number().int().min(0).optional() })).mutation(async ({ ctx, input }) => (await getMessagingService()).recordAction(ctx.user.id, input)),
   }),
 
   settings: router({
