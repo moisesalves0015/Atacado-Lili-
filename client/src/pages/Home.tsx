@@ -423,6 +423,7 @@ export default function Home() {
         setQuickClientOrder([]);
         setQuickClientSearch("");
         setShowQuickConfirmModal(false);
+        setShowVitrineMessages(true);
       },
       entries.length === 1
         ? "Venda registrada com sucesso!"
@@ -866,11 +867,19 @@ function QuickSaleHomeView({
             type="button"
             className="mini-pill-btn"
             onClick={onOpenMessages}
-            title="Central de mensagens e lembretes"
+            title="Central de mensagens e cobrança"
             aria-label="Central de mensagens"
+            style={{
+              background: "#0f5b63",
+              color: "#ffffff",
+              padding: "6px 14px",
+              fontWeight: 600,
+              fontSize: "13px",
+              borderRadius: "999px",
+            }}
           >
             <MessageCircle size={15} />
-            <span>Mensagens</span>
+            <span>Mensagens e Cobrança</span>
             {dueReminders.length > 0 && <em>{dueReminders.length}</em>}
           </button>
           <button type="button" className="mini-icon-btn" onClick={onAddProduct} title="Novo produto">
@@ -1095,35 +1104,59 @@ function QuickSaleHomeView({
             )}
           </div>
 
-          <Button
-            size="lg"
-            className="quick-finish-btn"
-            onClick={() => {
-              if (!quickProductId) {
-                toast.error("Selecione um produto na vitrine para finalizar o lote");
-                return;
-              }
-              if (selectedClients.length === 0) {
-                toast.error("Selecione pelo menos uma cliente na lista");
-                return;
-              }
-              onSave();
-            }}
-            disabled={savingSale}
-          >
-            <Check size={17} />
-            {savingSale
-              ? "Finalizando..."
-              : !quickProductId && selectedClients.length === 0
-              ? "Selecione produto e clientes"
-              : !quickProductId
-              ? "Selecione o produto acima"
-              : selectedClients.length === 0
-              ? "Selecione as clientes"
-              : selectedClients.length > 1
-              ? `Finalizar (${selectedClients.length} clientes)`
-              : "Finalizar (1 cliente)"}
-          </Button>
+          <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+            <Button
+              size="lg"
+              className="quick-finish-btn"
+              onClick={() => {
+                if (!quickProductId) {
+                  toast.error("Selecione um produto na vitrine para finalizar o lote");
+                  return;
+                }
+                if (selectedClients.length === 0) {
+                  toast.error("Selecione pelo menos uma cliente na lista");
+                  return;
+                }
+                onSave();
+              }}
+              disabled={savingSale}
+            >
+              <Check size={17} />
+              {savingSale
+                ? "Finalizando..."
+                : !quickProductId && selectedClients.length === 0
+                ? "Selecione produto e clientes"
+                : !quickProductId
+                ? "Selecione o produto acima"
+                : selectedClients.length === 0
+                ? "Selecione as clientes"
+                : selectedClients.length > 1
+                ? `Finalizar (${selectedClients.length} clientes)`
+                : "Finalizar (1 cliente)"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="default"
+              onClick={onOpenMessages}
+              style={{
+                width: "100%",
+                borderColor: "#0f5b63",
+                color: "#0f5b63",
+                fontWeight: 600,
+                background: "#f0fdf9",
+                height: "44px",
+                borderRadius: "10px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+              }}
+            >
+              <MessageCircle size={17} />
+              <span>Ver Mensagens e Cobranças</span>
+            </Button>
+          </div>
         </aside>
       </div>
     </div>

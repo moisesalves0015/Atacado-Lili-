@@ -25946,7 +25946,7 @@ var db_default = {
     {
       id: 7,
       name: "Fechamento de lista com Pix",
-      body: "{saudacao}, passando pra informar que fechamos a lista desse {produto_nome} e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\n{chave_pix}\n\n*{produto_nome}*\n{detalhes_produto}\n\n*Valor:* {valor_pendente}",
+      body: "Boa tarde, {nome_cliente}!\nPassando pra informar que fechamos a lista desse {produto_nome} e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\n{chave_pix}\n\n*Resumo do seu pedido:*\n*{produto_nome}*\n{quantidade} \xD7 {preco_unitario}\n*Valor total:* {valor_total}\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
       createdAt: "2026-11-04T23:31:00.265Z",
       updatedAt: "2026-11-04T23:31:00.267Z"
     }
