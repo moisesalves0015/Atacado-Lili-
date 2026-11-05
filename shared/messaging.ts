@@ -19,6 +19,10 @@ export type ReportRow = {
   unitPriceCents: number;
   quantity: number;
   totalCents: number;
+  status?: string;
+  paidCents?: number;
+  isPaid?: boolean;
+  isCharged?: boolean;
 };
 
 export type ReportTextOptions = {
@@ -26,12 +30,14 @@ export type ReportTextOptions = {
   includePhones?: boolean;
   /** Inclui o preco unitario historico no cabecalho do produto (padrao: true). */
   includePrices?: boolean;
+  showPaymentStatus?: boolean;
 };
 
 /** Blocos "produto + preço" com as clientes. Usa o preço histórico de cada item. */
 export function buildReportBlocks(rows: ReportRow[], options: ReportTextOptions = {}): string[] {
   const includePhones = options.includePhones ?? true;
   const includePrices = options.includePrices ?? true;
+  const showPaymentStatus = options.showPaymentStatus ?? false;
   const groups = new Map<string, ReportRow[]>();
   for (const row of rows) {
     const key = includePrices ? `${row.productId}-${row.unitPriceCents}` : `${row.productId}`;
@@ -41,12 +47,24 @@ export function buildReportBlocks(rows: ReportRow[], options: ReportTextOptions 
   for (const group of groups.values()) {
     const first = group[0];
     const header = includePrices ? `${first.productName} ${formatMoney(first.unitPriceCents)}` : first.productName;
+    const formatClient = (row: ReportRow) => {
+      const isPaid = Boolean(row.isPaid) || row.status === "paid" || (row.paidCents !== undefined && row.paidCents >= row.totalCents && row.totalCents > 0);
+      const isCharged = Boolean(row.isCharged);
+      const statusTag = showPaymentStatus
+        ? isPaid
+          ? " ✅ Pago"
+          : isCharged
+          ? " 📲 Cobrado"
+          : " ⏳ Pendente"
+        : "";
+      return `${row.clientName} – ${row.quantity}${statusTag}`;
+    };
     if (includePhones) {
       const lines = [header];
-      for (const row of group) lines.push(`${row.clientName} – ${row.quantity}\n${row.phone}`);
+      for (const row of group) lines.push(`${formatClient(row)}\n${row.phone}`);
       sections.push(lines.join("\n\n"));
     } else {
-      sections.push(`${header}\n\n${group.map(row => `${row.clientName} – ${row.quantity}`).join("\n")}`);
+      sections.push(`${header}\n\n${group.map(formatClient).join("\n")}`);
     }
   }
   return sections;
@@ -89,6 +107,8 @@ export type GroupUpdateOptions = {
   showPhones: boolean;
   showTotals: boolean;
   showProgress: boolean;
+  showPaymentStatus?: boolean;
+  includePix?: boolean;
   intro: string;
   closing: string;
 };
@@ -99,6 +119,8 @@ export const defaultGroupUpdateOptions: GroupUpdateOptions = {
   showPhones: false,
   showTotals: true,
   showProgress: true,
+  showPaymentStatus: false,
+  includePix: false,
   intro: "Atualização da lista",
   closing: "",
 };
@@ -127,7 +149,13 @@ export function buildGroupUpdateText(input: {
   if (!input.rows.length) {
     parts.push(`${input.productName}\n\nAinda sem quantidades registradas.`);
   } else if (options.showNames) {
-    parts.push(buildReportBlocks(input.rows, { includePhones: options.showPhones, includePrices: options.showPrices }).join("\n\n"));
+    parts.push(
+      buildReportBlocks(input.rows, {
+        includePhones: options.showPhones,
+        includePrices: options.showPrices,
+        showPaymentStatus: options.showPaymentStatus,
+      }).join("\n\n")
+    );
   } else {
     const price = new Set(input.rows.map(row => row.unitPriceCents));
     const priceText = options.showPrices && price.size === 1 ? ` ${formatMoney([...price][0])}` : "";
@@ -141,6 +169,9 @@ export function buildGroupUpdateText(input: {
     if (progress) footer.push(progressLine(progress));
   }
   if (footer.length) parts.push(footer.join("\n"));
+  if (options.includePix) {
+    parts.push("*Chave Pix* 👇🏻\nKriciaquaresma@gmail.com");
+  }
   if (options.closing.trim()) parts.push(options.closing.trim());
   return parts.join("\n\n");
 }
@@ -176,17 +207,59 @@ export function collectibleOrders<T extends ChargeOrder>(orders: T[]): T[] {
     });
 }
 
+export function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Bom dia";
+  if (hour >= 12 && hour < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
 /** Preenche os modelos de cobrança existentes com dados reais do pedido. */
-export function fillChargeTemplate(body: string, order: any, valueOverride?: number) {
+export function fillChargeTemplate(
+  body: string,
+  order: any,
+  valueOverride?: number,
+  extra?: { product?: any; clientsList?: string }
+) {
+  const greeting = getGreeting();
   const product = order.items?.map((item: any) => `${item.productName} (${item.quantity})`).join(", ") || "seu pedido";
+  const firstItem = order.items?.[0];
+  const productName = extra?.product?.name || firstItem?.productName || "Produto";
+  const productPrice = extra?.product?.priceCents
+    ? formatMoney(extra.product.priceCents)
+    : firstItem?.unitPriceCents
+    ? formatMoney(firstItem.unitPriceCents)
+    : "";
   const pending = valueOverride ?? Math.max(0, order.totalCents - order.paidCents);
+  const pixKey = "Kriciaquaresma@gmail.com";
+
+  const totalPieces = order.items?.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0) || Number(firstItem?.quantity || 1);
+  const unitPrice = firstItem?.unitPriceCents
+    ? formatMoney(firstItem.unitPriceCents)
+    : productPrice;
+  const totalOrderVal = formatMoney(order.totalCents || (pending + (order.paidCents || 0)));
+  const isPaid = order.status === "paid" || (order.paidCents >= order.totalCents && order.totalCents > 0);
+  const statusPagamento = isPaid ? "*Status:* ✅ Pago" : `*Valor a pagar:* ${formatMoney(pending)}`;
+  const resumoPedido = `${totalPieces} peças × ${unitPrice}\n*Total:* ${totalOrderVal}`;
+
   return body
+    .replaceAll("{saudacao}", greeting)
     .replaceAll("{nome_cliente}", order.client?.name ?? "cliente")
     .replaceAll("{produto}", product)
+    .replaceAll("{produto_nome}", productName)
+    .replaceAll("{produto_preco}", productPrice)
+    .replaceAll("{chave_pix}", pixKey)
     .replaceAll("{numero_pedido}", order.code ?? "")
     .replaceAll("{valor_pendente}", formatMoney(pending))
     .replaceAll("{valor_pago}", formatMoney(order.paidCents ?? 0))
-    .replaceAll("{data_vencimento}", formatDate(order.dueDate));
+    .replaceAll("{data_vencimento}", formatDate(order.dueDate))
+    .replaceAll("{detalhes_produto}", extra?.product?.description || "Cores variadas\nCom detalhe cinto")
+    .replaceAll("{lista_clientes}", extra?.clientsList ?? "")
+    .replaceAll("{resumo_pedido}", resumoPedido)
+    .replaceAll("{quantidade}", `${totalPieces} peças`)
+    .replaceAll("{preco_unitario}", unitPrice)
+    .replaceAll("{valor_total}", totalOrderVal)
+    .replaceAll("{status_pagamento}", statusPagamento);
 }
 
 export type BalanceChange = { orderId: number; expectedCents: number; currentCents: number };

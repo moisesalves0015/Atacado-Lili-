@@ -89,7 +89,7 @@ export const appRouter = router({
   products: router({
     list: adminProcedure.input(z.object({ search: z.string().optional() })).query(({ input }) => listProducts(input.search)),
     detail: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => getProductDetail(input.id)),
-    create: adminProcedure.input(z.object({ name: z.string().trim().min(1), priceCents: positiveMoney, category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional() })).mutation(({ ctx, input }) => createProduct(ctx.user.id, input)),
+    create: adminProcedure.input(z.object({ name: z.string().trim().min(1).default("Novo Produto"), priceCents: money.default(0), category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional() })).mutation(({ ctx, input }) => createProduct(ctx.user.id, input)),
     update: adminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).optional(), priceCents: positiveMoney.optional(), category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional(), active: z.boolean().optional() })).mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return updateProduct(ctx.user.id, id, data);
@@ -103,8 +103,28 @@ export const appRouter = router({
 
   clients: router({
     list: adminProcedure.input(z.object({ search: z.string().optional() })).query(({ input }) => listClients(input.search)),
-    create: adminProcedure.input(z.object({ name: z.string().trim().min(2), phone: z.string().trim().min(8), notes: z.string().optional() })).mutation(({ ctx, input }) => createClient(ctx.user.id, input)),
-    update: adminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).optional(), phone: z.string().trim().min(8).optional(), notes: z.string().optional(), active: z.boolean().optional() })).mutation(({ ctx, input }) => {
+    create: adminProcedure.input(
+      z.object({
+        name: z.string().trim().optional(),
+        phone: z.string().trim().optional(),
+        notes: z.string().optional(),
+      }).refine(data => Boolean(data.name?.trim() || data.phone?.trim()), {
+        message: "Informe pelo menos o nome ou o telefone",
+      })
+    ).mutation(({ ctx, input }) => {
+      const name = input.name?.trim() || (input.phone?.trim() ? `Cliente ${input.phone.trim()}` : "Cliente");
+      const phone = input.phone?.trim() || "Sem telefone";
+      return createClient(ctx.user.id, { name, phone, notes: input.notes });
+    }),
+    update: adminProcedure.input(
+      z.object({
+        id: z.number().int().positive(),
+        name: z.string().trim().min(1).optional(),
+        phone: z.string().trim().optional(),
+        notes: z.string().optional(),
+        active: z.boolean().optional(),
+      })
+    ).mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return updateClient(ctx.user.id, id, data);
     }),

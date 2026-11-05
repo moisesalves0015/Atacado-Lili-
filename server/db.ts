@@ -8,6 +8,7 @@ import {
   clients,
   orderItems,
   orders,
+  messageActions,
   payments,
   products,
   users,
@@ -319,10 +320,15 @@ export async function listClients(search?: string) {
 
 export async function createClient(actorUserId: number, input: { name: string; phone: string; notes?: string }) {
   const db = await getDb();
-  const phoneNormalized = normalizePhone(input.phone);
+  const digits = (input.phone || "").replace(/\D/g, "");
+  const hasRealPhone = digits.length >= 8;
+  const phoneNormalized = hasRealPhone
+    ? normalizePhone(input.phone)
+    : `sem-contato-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
   if (!db) {
     const store = getStore();
-    if (store.clients.some(c => c.phoneNormalized === phoneNormalized)) {
+    if (hasRealPhone && store.clients.some(c => c.phoneNormalized === phoneNormalized)) {
       throw new Error("Já existe um cliente com este telefone");
     }
     store.counters.clients += 1;
@@ -342,8 +348,12 @@ export async function createClient(actorUserId: number, input: { name: string; p
     await saveStore();
     return { id };
   }
-  const duplicate = await db.select({ id: clients.id }).from(clients).where(eq(clients.phoneNormalized, phoneNormalized)).limit(1);
-  if (duplicate[0]) throw new Error("Já existe um cliente com este telefone");
+
+  if (hasRealPhone) {
+    const duplicate = await db.select({ id: clients.id }).from(clients).where(eq(clients.phoneNormalized, phoneNormalized)).limit(1);
+    if (duplicate[0]) throw new Error("Já existe um cliente com este telefone");
+  }
+
   const [result] = await db.insert(clients).values({
     name: input.name.trim(),
     phone: input.phone.trim(),
@@ -452,6 +462,15 @@ export async function listOrders(input: { search?: string; status?: string }) {
     const store = getStore();
     const clientMap = new Map(store.clients.map(c => [c.id, c]));
     const productMap = new Map(store.products.map(p => [p.id, p]));
+    const chargedOrderIds = new Set<number>();
+    for (const a of store.messageActions) {
+      if (a.kind === "charge" && a.orderId && (a.status === "manual_confirmed" || a.status === "share_started")) {
+        chargedOrderIds.add(Number(a.orderId));
+      }
+    }
+    for (const c of store.charges) {
+      if (c.orderId) chargedOrderIds.add(Number(c.orderId));
+    }
     const byOrder = new Map<number, Array<{ id: number; productId: number; productName: string; quantity: number; unitPriceCents: number; totalCents: number }>>();
     for (const item of store.orderItems) {
       const product = productMap.get(item.productId);
@@ -473,7 +492,15 @@ export async function listOrders(input: { search?: string; status?: string }) {
       .map(order => {
         const client = clientMap.get(order.clientId)!;
         const status = effectiveStatus(order);
-        return { ...order, status, client, items: byOrder.get(order.id) ?? [] };
+        const isPaid = status === "paid" || (order.paidCents >= order.totalCents && order.totalCents > 0);
+        return {
+          ...order,
+          status,
+          client,
+          items: byOrder.get(order.id) ?? [],
+          isCharged: chargedOrderIds.has(order.id),
+          isPaid,
+        };
       })
       .filter(order => {
         if (input.status && input.status !== "all" && order.status !== input.status) return false;
@@ -486,7 +513,7 @@ export async function listOrders(input: { search?: string; status?: string }) {
         }
         return true;
       })
-      .sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime());
+      .sort((a, b) => b.orderDate.getTime() - a.orderDate.getTime() || b.id - a.id);
   }
   const conditions = [] as any[];
   if (input.status && input.status !== "all") conditions.push(eq(orders.status, input.status as any));
@@ -494,7 +521,7 @@ export async function listOrders(input: { search?: string; status?: string }) {
     const term = `%${input.search.trim()}%`;
     conditions.push(or(like(orders.code, term), like(clients.name, term), like(clients.phone, term)));
   }
-  const orderRows = await db.select({ order: orders, client: clients }).from(orders).innerJoin(clients, eq(orders.clientId, clients.id)).where(conditions.length ? and(...conditions) : undefined).orderBy(desc(orders.orderDate));
+  const orderRows = await db.select({ order: orders, client: clients }).from(orders).innerJoin(clients, eq(orders.clientId, clients.id)).where(conditions.length ? and(...conditions) : undefined).orderBy(desc(orders.orderDate), desc(orders.id));
   const items = await db.select({ item: orderItems, product: products }).from(orderItems).innerJoin(products, eq(orderItems.productId, products.id));
   const byOrder = new Map<number, Array<{ id: number; productId: number; productName: string; quantity: number; unitPriceCents: number; totalCents: number }>>();
   for (const row of items) {
@@ -502,7 +529,23 @@ export async function listOrders(input: { search?: string; status?: string }) {
     list.push({ id: row.item.id, productId: row.item.productId, productName: row.product.name, quantity: row.item.quantity, unitPriceCents: row.item.unitPriceCents, totalCents: row.item.totalCents });
     byOrder.set(row.item.orderId, list);
   }
-  return orderRows.map(row => ({ ...row.order, status: effectiveStatus(row.order), client: row.client, items: byOrder.get(row.order.id) ?? [] }));
+  const chargeActions = await db.select({ orderId: messageActions.orderId }).from(messageActions).where(and(eq(messageActions.kind, "charge"), inArray(messageActions.status, ["manual_confirmed", "share_started"])));
+  const chargesList = await db.select({ orderId: charges.orderId }).from(charges);
+  const chargedOrderIds = new Set<number>([
+    ...chargeActions.map(a => Number(a.orderId)),
+    ...chargesList.map(c => Number(c.orderId)),
+  ]);
+  return orderRows.map(row => {
+    const status = effectiveStatus(row.order);
+    return {
+      ...row.order,
+      status,
+      client: row.client,
+      items: byOrder.get(row.order.id) ?? [],
+      isCharged: chargedOrderIds.has(row.order.id),
+      isPaid: status === "paid" || (row.order.paidCents >= row.order.totalCents && row.order.totalCents > 0),
+    };
+  });
 }
 
 export async function createOrder(actorUserId: number, input: { clientId: number; items: Array<{ productId: number; quantity: number }>; dueDate?: string; notes?: string; orderDate?: string; initialPaymentCents?: number }) {
@@ -781,7 +824,7 @@ export async function getProductDetail(productId: number) {
         return client ? { item, order, client } : null;
       })
       .filter((r): r is NonNullable<typeof r> => Boolean(r))
-      .sort((a, b) => b.order.orderDate.getTime() - a.order.orderDate.getTime());
+      .sort((a, b) => a.order.id - b.order.id || a.item.id - b.item.id);
 
     const orderIds = [...new Set(rows.map(row => row.order.id))];
     const fullItems = store.orderItems.filter(item => orderIds.includes(item.orderId));
@@ -841,7 +884,7 @@ export async function getProductDetail(productId: number) {
   const productRows = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   const product = productRows[0];
   if (!product) return null;
-  const rows = await db.select({ item: orderItems, order: orders, client: clients }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).where(eq(orderItems.productId, productId)).orderBy(desc(orders.orderDate));
+  const rows = await db.select({ item: orderItems, order: orders, client: clients }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).where(eq(orderItems.productId, productId)).orderBy(orders.id, orderItems.id);
   const orderIds = [...new Set(rows.map(row => row.order.id))];
   const fullItems = orderIds.length ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds)) : [];
   const allocationByItem = new Map<number, number>();
@@ -1002,7 +1045,7 @@ export async function getReportRows(input: { productId?: number; from?: string; 
         return client ? { item, order, client, product } : null;
       })
       .filter((r): r is NonNullable<typeof r> => Boolean(r))
-      .sort((a, b) => a.product.name.localeCompare(b.product.name) || a.client.name.localeCompare(b.client.name));
+      .sort((a, b) => (a.product.id !== b.product.id ? a.product.id - b.product.id : a.order.id - b.order.id || a.item.id - b.item.id));
 
     return rows
       .filter(row => {
@@ -1025,7 +1068,7 @@ export async function getReportRows(input: { productId?: number; from?: string; 
         orderDate: row.order.orderDate,
       }));
   }
-  const rows = await db.select({ item: orderItems, order: orders, client: clients, product: products }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).innerJoin(products, eq(orderItems.productId, products.id)).where(input.productId ? eq(orderItems.productId, input.productId) : undefined).orderBy(products.name, clients.name);
+  const rows = await db.select({ item: orderItems, order: orders, client: clients, product: products }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).innerJoin(products, eq(orderItems.productId, products.id)).where(input.productId ? eq(orderItems.productId, input.productId) : undefined).orderBy(products.id, orders.id, orderItems.id);
   return rows.filter(row => {
     if (row.order.status === "cancelled") return false;
     if (input.orderIds?.length && !input.orderIds.includes(row.order.id)) return false;

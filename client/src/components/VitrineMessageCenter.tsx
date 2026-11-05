@@ -22,6 +22,7 @@ import {
   ChevronUp,
   Copy,
   MessageCircle,
+  Send,
   Package,
   SlidersHorizontal,
   Users,
@@ -159,6 +160,8 @@ export default function VitrineMessageCenter({
               onActionRecorded={() => {
                 void utils.messages.overview.invalidate();
                 void utils.orders.list.invalidate();
+                void utils.reports.rows.invalidate();
+                void utils.dashboard.summary.invalidate();
               }}
               recordAction={recordAction}
             />
@@ -182,6 +185,7 @@ const handleHorizontalWheel = (e: React.WheelEvent<HTMLDivElement>) => {
 function VitrineGroupUpdateFlow({
   products,
   orders,
+  recentActions = [],
   selectedProductId,
   onSelectProduct,
   destinations,
@@ -191,6 +195,7 @@ function VitrineGroupUpdateFlow({
 }: {
   products: any[];
   orders: any[];
+  recentActions?: any[];
   selectedProductId: number | null;
   onSelectProduct: (id: number) => void;
   destinations: any[];
@@ -199,8 +204,10 @@ function VitrineGroupUpdateFlow({
   recordAction: any;
 }) {
   const [showConfig, setShowConfig] = useState(false);
-  const [options, setOptions] = useState<GroupUpdateOptions>(defaultGroupUpdateOptions);
-  const [destinationId, setDestinationId] = useState<string>("");
+  const [options, setOptions] = useState<GroupUpdateOptions>(() => ({
+    ...defaultGroupUpdateOptions,
+    showPaymentStatus: true,
+  }));
   const [editedText, setEditedText] = useState<string | null>(null);
   const [actionKey, setActionKey] = useState(() => newKey("vupdate"));
   const [status, setStatus] = useState<ActionStatus | null>(null);
@@ -229,9 +236,31 @@ function VitrineGroupUpdateFlow({
     { enabled: Boolean(selectedProductId) }
   );
 
-  const rows = (rowsQuery.data ?? []) as ReportRow[];
+  const rawRows = (rowsQuery.data ?? []) as ReportRow[];
   const lot = lots.find((l: any) => l.productId === selectedProductId);
   const goalPieces = lot?.goalPieces ?? null;
+
+  // Reconcilia com orders e recentActions em tempo real instantaneamente
+  const rows = useMemo(() => {
+    const orderMap = new Map(orders.map((o: any) => [o.id, o]));
+    const chargedOrderIds = new Set(
+      recentActions
+        .filter((a: any) => a.kind === "charge" && a.orderId && (a.status === "manual_confirmed" || a.status === "share_started"))
+        .map((a: any) => Number(a.orderId))
+    );
+
+    return rawRows.map(r => {
+      const o = orderMap.get(r.orderId);
+      const isPaid = (o && (o.status === "paid" || o.paidCents >= o.totalCents)) || r.status === "paid" || Boolean(r.isPaid);
+      const isCharged = chargedOrderIds.has(r.orderId) || Boolean(r.isCharged);
+      return {
+        ...r,
+        status: isPaid ? "paid" : (o?.status ?? r.status ?? "pending"),
+        isPaid,
+        isCharged,
+      };
+    });
+  }, [rawRows, orders, recentActions]);
 
   // Reseta texto editado e chave ao trocar de produto
   useEffect(() => {
@@ -270,7 +299,6 @@ function VitrineGroupUpdateFlow({
 
   const totalPieces = buyers.reduce((sum, b) => sum + b.quantity, 0);
 
-  const targetDestination = destinations.find((d: any) => String(d.id) === destinationId);
 
   const handleRecord = async (nextStatus: ActionStatus) => {
     try {
@@ -278,8 +306,8 @@ function VitrineGroupUpdateFlow({
         idempotencyKey: actionKey,
         kind: "group_update",
         status: nextStatus,
-        destinationType: targetDestination ? "group" : "none",
-        destinationId: targetDestination?.id ?? null,
+        destinationType: "none",
+        destinationId: null,
         productId: selectedProductId,
         title: selectedProduct ? `Atualização — ${selectedProduct.name}` : "Atualização",
         message: messageText.slice(0, 2000),
@@ -304,12 +332,10 @@ function VitrineGroupUpdateFlow({
     if (busy || !messageText.trim()) return;
     setBusy(true);
     try {
-      const started = await shareReportOnWhatsApp(messageText, selectedProduct, {
-        targetUrl: targetDestination?.inviteUrl ?? undefined,
-      });
+      const started = await shareReportOnWhatsApp(messageText, selectedProduct);
       if (started) {
         await handleRecord("share_started");
-        toast.info("WhatsApp aberto. Confirme o envio após compartilhar no grupo.");
+        toast.success("WhatsApp aberto!");
       }
     } finally {
       setBusy(false);
@@ -470,21 +496,27 @@ function VitrineGroupUpdateFlow({
                 />
                 <span>Exibir totais de peças e clientes</span>
               </label>
+
+              <label className="vmc-chk-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(options.showPaymentStatus)}
+                  onChange={e => setOptions({ ...options, showPaymentStatus: e.target.checked })}
+                />
+                <span>Exibir status de pagamento (✅ Pago)</span>
+              </label>
+
+              <label className="vmc-chk-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(options.includePix)}
+                  onChange={e => setOptions({ ...options, includePix: e.target.checked })}
+                />
+                <span>Incluir Chave Pix no final</span>
+              </label>
             </div>
 
-            {destinations.length > 0 && (
-              <div className="vmc-field-inline">
-                <label>Destino de grupo configurado:</label>
-                <select value={destinationId} onChange={e => setDestinationId(e.target.value)}>
-                  <option value="">Nenhum (escolho no WhatsApp)</option>
-                  {destinations.map((d: any) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+
           </div>
         )}
       </section>
@@ -532,7 +564,7 @@ function VitrineGroupUpdateFlow({
 
             <Button size="sm" onClick={handleShare} disabled={!messageText.trim() || busy}>
               <MessageCircle size={14} />
-              <span>{selectedProduct?.imageUrl ? "WhatsApp (Foto + Legenda)" : "Abrir WhatsApp"}</span>
+              <span>WhatsApp</span>
             </Button>
 
             <Button
@@ -724,6 +756,7 @@ function VitrineChargesFlow({
                 <VitrineChargeCardItem
                   key={order.id}
                   order={order}
+                  products={products}
                   templates={templates}
                   isExpanded={isExpanded}
                   onToggleExpand={() => toggleOrderExpand(order.id)}
@@ -750,6 +783,7 @@ function VitrineChargesFlow({
 
 function VitrineChargeCardItem({
   order,
+  products,
   templates,
   isExpanded,
   onToggleExpand,
@@ -757,6 +791,7 @@ function VitrineChargeCardItem({
   recordAction,
 }: {
   order: any;
+  products: any[];
   templates: any[];
   isExpanded: boolean;
   onToggleExpand: () => void;
@@ -764,17 +799,30 @@ function VitrineChargeCardItem({
   recordAction: any;
 }) {
   const balance = openBalanceCents(order);
-  const defaultTemplate = templates[0];
-  const [templateId, setTemplateId] = useState<number>(defaultTemplate?.id ?? 0);
+  const pixTemplate = templates.find((t: any) => t.name?.includes("Pix") || t.body?.includes("Pix")) ?? templates[0];
+  const defaultTemplate = pixTemplate ?? templates[0];
+  const [templateId, setTemplateId] = useState<number>(pixTemplate?.id ?? defaultTemplate?.id ?? 0);
   const [customText, setCustomText] = useState<string | null>(null);
   const [actionKey] = useState(() => newKey(`vcharge-${order.id}`));
-  const [status, setStatus] = useState<ActionStatus | null>(null);
+  const [orderStatus, setOrderStatus] = useState<string>(order.status);
+  const [actionStatus, setActionStatus] = useState<ActionStatus | null>(() => (order.isCharged ? "manual_confirmed" : null));
   const [busy, setBusy] = useState(false);
+
+  const createPayment = trpc.payments.create.useMutation();
+  const cancelOrder = trpc.orders.cancel.useMutation();
+  const utils = trpc.useUtils();
+
+  // Produto principal deste pedido (para foto e contexto)
+  const product = useMemo(() => {
+    const firstProductId = order.items?.[0]?.productId;
+    return products.find((p: any) => p.id === firstProductId) ?? null;
+  }, [products, order.items]);
 
   // Sincroniza o template padrão caso a query de modelos carregue após a montagem
   useEffect(() => {
-    if ((!templateId || !templates.some((t: any) => t.id === templateId)) && templates.length > 0) {
-      setTemplateId(templates[0].id);
+    const target = templates.find((t: any) => t.name?.includes("Pix") || t.body?.includes("Pix")) ?? templates[0];
+    if (target && (!templateId || !templates.some((t: any) => t.id === templateId))) {
+      setTemplateId(target.id);
     }
   }, [templates, templateId]);
 
@@ -783,9 +831,9 @@ function VitrineChargeCardItem({
   const generatedMessage = useMemo(() => {
     const body =
       activeTemplate?.body ??
-      "Olá, {cliente}! Seu pedido {codigo} ({itens}) está com saldo em aberto de {saldo}. Total: {total}.";
-    return fillChargeTemplate(body, order);
-  }, [activeTemplate, order]);
+      `{saudacao}, {nome_cliente}!\nPassando pra informar que fechamos a lista desse {produto_nome} e já vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* 👇🏻\n{chave_pix}\n\n*Resumo do seu pedido:*\n*{produto_nome}*\n{quantidade} × {preco_unitario}\n*Valor total:* {valor_total}\n\n⚠️ *Importante:* Para garantir suas peças no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!`;
+    return fillChargeTemplate(body, order, undefined, { product });
+  }, [activeTemplate, order, product]);
 
   const messageText = customText ?? generatedMessage;
   const isEdited = customText !== null && customText !== generatedMessage;
@@ -796,19 +844,34 @@ function VitrineChargeCardItem({
     return items.map((item: any) => `${item.productName} (${item.quantity} un)`).join(" · ");
   }, [order.items]);
 
+  // Status efetivo para exibição com emojis definidos
+  const currentEffectiveStatus = useMemo(() => {
+    if (orderStatus === "paid" || order.status === "paid" || Boolean(order.isPaid) || (order.paidCents >= order.totalCents && order.totalCents > 0)) {
+      return "paid";
+    }
+    if (orderStatus === "cancelled" || order.status === "cancelled") {
+      return "cancelled";
+    }
+    if (actionStatus === "manual_confirmed" || actionStatus === "share_started" || Boolean(order.isCharged)) {
+      return "charged";
+    }
+    return "pending";
+  }, [orderStatus, actionStatus, order.status, order.isPaid, order.paidCents, order.totalCents, order.isCharged]);
+
   const handleRecord = async (nextStatus: ActionStatus) => {
     try {
       const res = await recordAction.mutateAsync({
         idempotencyKey: actionKey,
         kind: "charge",
         status: nextStatus,
+        destinationType: "client",
         orderId: order.id,
-        clientId: order.client?.id ?? null,
-        title: `Cobrança — ${order.client?.name}`,
+        clientId: Number(order.client?.id ?? order.clientId) || null,
+        title: `Cobrança ${order.code} — ${order.client?.name ?? "Cliente"}`.slice(0, 200),
         message: messageText.slice(0, 2000),
-        snapshotBalanceCents: balance,
+        expectedBalanceCents: balance,
       });
-      setStatus(res.action.status as ActionStatus);
+      setActionStatus(res.action.status as ActionStatus);
       onActionRecorded();
       return true;
     } catch (err) {
@@ -825,25 +888,80 @@ function VitrineChargeCardItem({
     void handleRecord("ready");
   };
 
-  const handleOpenWhatsApp = (e: React.MouseEvent) => {
+  // Envio livre com foto + texto sem limites ou avisos impeditivos
+  const handleOpenWhatsApp = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!messageText.trim()) return;
     const phone = order.client?.phone ?? "";
-    const url = waChatUrl(phone, messageText);
-    window.open(url, "_blank", "noopener,noreferrer");
+    await shareReportOnWhatsApp(messageText, product, { phone });
     void handleRecord("share_started");
-    toast.info("WhatsApp aberto; confirme o envio após enviar no aplicativo.");
+    setActionStatus("share_started");
+    toast.success("WhatsApp aberto!");
   };
 
-  const handleConfirm = async (e: React.MouseEvent) => {
+  // Atualizar status: Cobrado
+  const handleMarkCharged = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (busy || !messageText.trim()) return;
+    if (busy) return;
     setBusy(true);
     try {
       const ok = await handleRecord("manual_confirmed");
       if (ok) {
-        toast.success(`Envio para ${order.client?.name} registrado!`);
+        setActionStatus("manual_confirmed");
+        order.isCharged = true;
+        onActionRecorded();
+        toast.success(`Cobrança de ${order.client?.name} marcada como enviada!`);
       }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Atualizar status: Pago (dá baixa e quita o pedido)
+  const handleMarkPaid = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    if (!window.confirm(`Deseja marcar o pedido ${order.code} de ${order.client?.name} como PAGO (${formatMoney(balance)})?`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await createPayment.mutateAsync({
+        orderId: order.id,
+        amountCents: balance,
+        method: "PIX",
+        notes: "Baixa manual registrada na Vitrine",
+      });
+      setOrderStatus("paid");
+      await handleRecord("manual_confirmed");
+      utils.orders.list.invalidate();
+      utils.dashboard.summary.invalidate();
+      onActionRecorded();
+      toast.success(`Pedido de ${order.client?.name} quitado com sucesso!`);
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : "Erro ao registrar pagamento");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Atualizar status: Cancelar
+  const handleCancelOrder = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    if (!window.confirm(`Deseja realmente CANCELAR o pedido ${order.code} de ${order.client?.name}?`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await cancelOrder.mutateAsync({ id: order.id });
+      setOrderStatus("cancelled");
+      utils.orders.list.invalidate();
+      utils.dashboard.summary.invalidate();
+      onActionRecorded();
+      toast.success(`Pedido de ${order.client?.name} cancelado.`);
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : "Erro ao cancelar pedido");
     } finally {
       setBusy(false);
     }
@@ -877,7 +995,7 @@ function VitrineChargeCardItem({
               {productSummary}
             </span>
             <small className="vmc-charge-client-phone">
-              {order.client?.phone} · Pedido {order.code}
+              {order.client?.phone || "Sem telefone"} · Pedido {order.code}
             </small>
           </div>
         </div>
@@ -888,11 +1006,12 @@ function VitrineChargeCardItem({
             <strong className="vmc-charge-balance-val">{formatMoney(balance)}</strong>
           </div>
 
-          {status && (
-            <span className={`vmc-status-chip vmc-status-${status}`}>
-              {ACTION_STATUS_LABELS[status]}
-            </span>
-          )}
+          <span className={`vmc-status-chip vmc-status-${currentEffectiveStatus}`}>
+            {currentEffectiveStatus === "paid" && "Pago"}
+            {currentEffectiveStatus === "cancelled" && "Cancelado"}
+            {currentEffectiveStatus === "charged" && "Cobrado"}
+            {currentEffectiveStatus === "pending" && "Pendente"}
+          </span>
 
           <button
             type="button"
@@ -948,29 +1067,62 @@ function VitrineChargeCardItem({
           )}
 
           <div className="vmc-charge-card-actions">
-            <Button size="sm" variant="outline" onClick={handleCopy} disabled={!messageText.trim() || busy}>
-              <Copy size={13} />
-              <span>Copiar</span>
-            </Button>
-
-            <Button size="sm" onClick={handleOpenWhatsApp} disabled={!messageText.trim() || busy}>
-              <MessageCircle size={13} />
-              <span>Abrir WhatsApp</span>
-            </Button>
-
-            <Button
-              size="sm"
-              variant={status === "manual_confirmed" ? "secondary" : "outline"}
-              onClick={handleConfirm}
+            <button
+              type="button"
+              className="vmc-action-btn vmc-btn-copy"
+              onClick={handleCopy}
               disabled={!messageText.trim() || busy}
             >
-              <Check size={13} />
-              <span>{status === "manual_confirmed" ? "Confirmado" : "Confirmei o envio"}</span>
-            </Button>
+              <Copy size={13} />
+              <span>Copiar</span>
+            </button>
+
+            <button
+              type="button"
+              className="vmc-action-btn vmc-btn-whatsapp"
+              onClick={handleOpenWhatsApp}
+              disabled={!messageText.trim() || busy}
+              title="Abrir WhatsApp com foto do produto e mensagem"
+            >
+              <MessageCircle size={13} />
+              <span>WhatsApp</span>
+            </button>
+
+            <button
+              type="button"
+              className={`vmc-action-btn vmc-btn-charged ${currentEffectiveStatus === "charged" ? "is-active" : ""}`}
+              onClick={handleMarkCharged}
+              disabled={busy || currentEffectiveStatus === "paid" || currentEffectiveStatus === "cancelled"}
+              title="Marcar como cobrado"
+            >
+              <Send size={12} />
+              <span>Cobrado</span>
+            </button>
+
+            <button
+              type="button"
+              className={`vmc-action-btn vmc-btn-paid ${currentEffectiveStatus === "paid" ? "is-active" : ""}`}
+              onClick={handleMarkPaid}
+              disabled={busy || currentEffectiveStatus === "paid" || currentEffectiveStatus === "cancelled"}
+              title="Quitar pedido e dar baixa no saldo"
+            >
+              <Check size={12} />
+              <span>Pago</span>
+            </button>
+
+            <button
+              type="button"
+              className={`vmc-action-btn vmc-btn-cancel ${currentEffectiveStatus === "cancelled" ? "is-active" : ""}`}
+              onClick={handleCancelOrder}
+              disabled={busy || currentEffectiveStatus === "cancelled" || currentEffectiveStatus === "paid"}
+              title="Cancelar pedido"
+            >
+              <X size={12} />
+              <span>Cancelar</span>
+            </button>
           </div>
         </div>
       )}
     </article>
   );
 }
-

@@ -2228,3 +2228,398 @@ html, body, #root { max-width: 100%; overflow-x: hidden; }
   }
 }
 
+
+/* ==========================================================================
+   Melhorias na Vitrine: Ordem de Seleção, Cadastro Rápido e Resumo de Confirmação
+   ========================================================================== */
+
+/* Badge com a posição exata de seleção (#1, #2...) */
+.client-order-badge {
+  font: 800 10px/1 "Manrope", sans-serif;
+  color: var(--teal-deep);
+  background: var(--teal-soft);
+  padding: 3px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 1px solid #c2e2d9;
+}
+
+/* Callout quando cliente buscado não existe na lista */
+.quick-client-create-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #fdfaf3;
+  border: 1px dashed #e8c886;
+  margin: 4px 0;
+}
+
+.quick-callout-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-callout-text strong {
+  display: block;
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.quick-callout-text small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.quick-add-custom-client-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: #fafcfb;
+  color: var(--teal-deep);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: all 0.14s ease;
+}
+
+.quick-add-custom-client-btn:hover {
+  background: var(--teal-soft);
+  border-color: #b7ddd5;
+}
+
+/* Pop-up de confirmação de lote */
+.quick-confirm-content {
+  display: grid;
+  gap: 14px;
+}
+
+.quick-confirm-product-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f4faf7;
+  border: 1px solid #d0ebe2;
+}
+
+.quick-confirm-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 9px;
+  background: #e5f3ee;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.quick-confirm-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.quick-confirm-product-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.quick-confirm-product-info .eyebrow {
+  margin-bottom: 2px;
+  font-size: 10px;
+}
+
+.quick-confirm-product-info strong {
+  display: block;
+  font-size: 14px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-confirm-product-info small {
+  display: block;
+  font-size: 11px;
+  color: var(--teal);
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.quick-confirm-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 8px;
+}
+
+.quick-confirm-stat {
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--surface-warm);
+  border: 1px solid var(--line);
+  text-align: center;
+}
+
+.quick-confirm-stat span {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.quick-confirm-stat strong {
+  display: block;
+  font: 800 14px/1.2 "Manrope", sans-serif;
+  color: var(--ink);
+  margin-top: 3px;
+}
+
+.quick-confirm-stat.accent {
+  background: #fdf5f2;
+  border-color: #f7d5cc;
+}
+
+.quick-confirm-stat.accent strong {
+  color: var(--coral);
+}
+
+.quick-confirm-list-header {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.quick-confirm-clients-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.quick-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: #fafcfb;
+  border: 1px solid var(--line);
+}
+
+.quick-confirm-idx {
+  font: 800 11px/1 "Manrope", sans-serif;
+  color: var(--teal-deep);
+  background: var(--teal-soft);
+  padding: 3px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.quick-confirm-client-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.quick-confirm-client-info strong {
+  display: block;
+  font-size: 12px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-confirm-client-info small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.quick-confirm-qty-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.quick-confirm-row-total {
+  font: 800 12px/1 "Manrope", sans-serif;
+  color: var(--teal);
+  min-width: 58px;
+  text-align: right;
+}
+
+/* Status chips com emojis para cobrança na vitrine */
+.vmc-status-paid {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+}
+
+.vmc-status-cancelled {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+.vmc-status-charged {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+}
+
+.vmc-status-pending {
+  background: #fef3c7 !important;
+  color: #b45309 !important;
+}
+
+.vmc-btn-paid {
+  border-color: #86efac !important;
+  color: #15803d !important;
+}
+
+.vmc-btn-paid:hover {
+  background: #f0fdf4 !important;
+}
+
+.vmc-btn-cancel {
+  color: #dc2626 !important;
+}
+
+.vmc-btn-cancel:hover {
+  background: #fef2f2 !important;
+}
+
+.vmc-status-legend-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--surface-warm);
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--foreground);
+}
+
+.vmc-status-legend-box .vmc-legend-title {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+/* ==========================================================================
+   Harmonização e Padronização dos Botões de Ação na Cobrança da Vitrine
+   ========================================================================== */
+
+.vmc-charge-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-light, rgba(0, 0, 0, 0.06));
+}
+
+.vmc-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--foreground);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.vmc-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* 1. Botão Copiar */
+.vmc-btn-copy:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: #cbd5e1;
+}
+
+/* 2. Botão WhatsApp */
+.vmc-btn-whatsapp {
+  background: #25D366 !important;
+  color: #ffffff !important;
+  border-color: #22c55e !important;
+  font-weight: 700;
+}
+
+.vmc-btn-whatsapp:hover:not(:disabled) {
+  background: #1eb956 !important;
+  border-color: #16a34a !important;
+}
+
+/* 3. Botão Cobrado */
+.vmc-btn-charged:hover:not(:disabled) {
+  background: #f0f9ff;
+  border-color: #7dd3fc;
+  color: #0284c7;
+}
+
+.vmc-btn-charged.is-active {
+  background: #e0f2fe !important;
+  border-color: #38bdf8 !important;
+  color: #0369a1 !important;
+  font-weight: 700;
+}
+
+/* 4. Botão Pago */
+.vmc-btn-paid:hover:not(:disabled) {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #16a34a;
+}
+
+.vmc-btn-paid.is-active {
+  background: #dcfce7 !important;
+  border-color: #4ade80 !important;
+  color: #15803d !important;
+  font-weight: 700;
+}
+
+/* 5. Botão Cancelar */
+.vmc-btn-cancel {
+  color: var(--muted);
+}
+
+.vmc-btn-cancel:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.vmc-btn-cancel.is-active {
+  background: #fee2e2 !important;
+  border-color: #f87171 !important;
+  color: #b91c1c !important;
+  font-weight: 700;
+}

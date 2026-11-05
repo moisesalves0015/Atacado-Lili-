@@ -47,6 +47,19 @@ import VitrineMessageCenter from "@/components/VitrineMessageCenter";
 
 type Section = "dashboard" | "messages" | "products" | "product" | "clients" | "orders" | "charges" | "finance" | "reports" | "settings";
 type ProductForm = { id: number | null; name: string; price: string; category: string; description: string; imageUrl: string };
+function parseClientSearchInput(input: string): { name: string; phone: string } {
+  const trimmed = input.trim();
+  const digitsOnly = trimmed.replace(/\D/g, "");
+  if (/^[\d\s()+-]+$/.test(trimmed) && digitsOnly.length >= 4) {
+    return { name: "", phone: trimmed };
+  }
+  const matchWithPhone = trimmed.match(/^(.*?)[s,;]+([0-9]{8,13})$/);
+  if (matchWithPhone) {
+    return { name: matchWithPhone[1].trim(), phone: matchWithPhone[2].trim() };
+  }
+  return { name: trimmed, phone: "" };
+}
+
 type ClientForm = { id: number | null; name: string; phone: string; notes: string };
 type SaleItem = { productId: string; quantity: string; unitPriceCents?: number };
 type VcfContact = { name: string; phone: string };
@@ -130,6 +143,8 @@ export default function Home() {
   const [quickClientSearch, setQuickClientSearch] = useState("");
   const [quickProductId, setQuickProductId] = useState<number | null>(null);
   const [quickClientQuantities, setQuickClientQuantities] = useState<Record<number, number>>({});
+  const [quickClientOrder, setQuickClientOrder] = useState<number[]>([]);
+  const [showQuickConfirmModal, setShowQuickConfirmModal] = useState(false);
   const [savingQuickSale, setSavingQuickSale] = useState(false);
   const [section, setSection] = useState<Section>("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -302,7 +317,9 @@ export default function Home() {
     setSavingProduct(true);
     run(async () => {
       const imageUrl = productImageFile ? await uploadProductPhoto(productImageFile) : productForm.imageUrl;
-      const payload = { name: productForm.name, priceCents: moneyToCents(productForm.price), category: productForm.category, description: productForm.description, imageUrl };
+      const name = productForm.name.trim() || "Novo Produto";
+      const priceCents = moneyToCents(productForm.price) || 0;
+      const payload = { name, priceCents, category: productForm.category, description: productForm.description, imageUrl };
       if (productForm.id) await updateProduct.mutateAsync({ id: productForm.id, ...payload });
       else await createProduct.mutateAsync(payload);
       setProductForm(emptyProduct);
@@ -314,16 +331,74 @@ export default function Home() {
   };
 
   const submitClient = () => run(async () => {
-    if (clientForm.id) await updateClient.mutateAsync({ id: clientForm.id, name: clientForm.name, phone: clientForm.phone, notes: clientForm.notes });
-    else await createClient.mutateAsync(clientForm);
+    const rawName = clientForm.name.trim();
+    const rawPhone = clientForm.phone.trim();
+    const name = rawName || (rawPhone ? `Cliente ${rawPhone}` : "Cliente");
+    const phone = rawPhone || "Sem telefone";
+    if (clientForm.id) {
+      await updateClient.mutateAsync({ id: clientForm.id, name, phone, notes: clientForm.notes });
+    } else {
+      const created = await createClient.mutateAsync({ name, phone, notes: clientForm.notes });
+      if (created?.id) {
+        setQuickClientQuantities(prev => ({ ...prev, [created.id]: 1 }));
+        setQuickClientOrder(prev => (prev.includes(created.id) ? prev : [...prev, created.id]));
+        setQuickClientSearch("");
+      }
+    }
     setClientForm(emptyClient);
     setShowClientForm(false);
   }, clientForm.id ? "Cliente atualizado" : "Cliente cadastrado");
 
+  const handleQuickCreateClient = (term: string) => {
+    const parsed = parseClientSearchInput(term);
+    setClientForm({
+      id: null,
+      name: parsed.name,
+      phone: parsed.phone,
+      notes: "Cadastrado via busca na Vitrine",
+    });
+    setShowClientForm(true);
+  };
+
+  const handleOpenQuickConfirm = () => {
+    if (!quickProductId) {
+      toast.error("Selecione um produto na vitrine");
+      return;
+    }
+    const hasClients = quickClientOrder.some(id => Number(quickClientQuantities[id]) > 0);
+    if (!hasClients) {
+      toast.error("Selecione pelo menos uma cliente");
+      return;
+    }
+    setShowQuickConfirmModal(true);
+  };
+
+  const quickProduct = useMemo(
+    () => products.find((p: any) => p.id === quickProductId) ?? null,
+    [products, quickProductId]
+  );
+
+  const quickConfirmItems = useMemo(() => {
+    const map = new Map(clients.map((c: any) => [c.id, c]));
+    return quickClientOrder
+      .map(id => ({ client: map.get(id), qty: Math.max(1, Number(quickClientQuantities[id]) || 1) }))
+      .filter((item): item is { client: any; qty: number } => Boolean(item.client) && Number(quickClientQuantities[item.client.id]) > 0);
+  }, [clients, quickClientOrder, quickClientQuantities]);
+
+  const quickConfirmTotalPieces = useMemo(
+    () => quickConfirmItems.reduce((sum, item) => sum + item.qty, 0),
+    [quickConfirmItems]
+  );
+
+  const quickConfirmTotalCents = useMemo(
+    () => (quickProduct ? quickConfirmTotalPieces * quickProduct.priceCents : 0),
+    [quickProduct, quickConfirmTotalPieces]
+  );
+
   const submitQuickBatchSale = () => {
     if (savingQuickSale) return;
-    const entries = Object.entries(quickClientQuantities)
-      .map(([clientId, qty]) => ({ clientId: Number(clientId), quantity: Math.max(1, Number(qty) || 1) }))
+    const entries = quickClientOrder
+      .map(clientId => ({ clientId, quantity: Math.max(1, Number(quickClientQuantities[clientId]) || 1) }))
       .filter(entry => entry.clientId > 0 && entry.quantity >= 1);
 
     if (!quickProductId) {
@@ -345,11 +420,13 @@ export default function Home() {
           });
         }
         setQuickClientQuantities({});
+        setQuickClientOrder([]);
         setQuickClientSearch("");
+        setShowQuickConfirmModal(false);
       },
       entries.length === 1
         ? "Venda registrada com sucesso!"
-        : `Vendas registradas para ${entries.length} clientes!`
+        : `Vendas registradas para ${entries.length} clientes na ordem de seleção!`
     ).finally(() => {
       setSavingQuickSale(false);
     });
@@ -478,15 +555,18 @@ export default function Home() {
         setQuickProductId={setQuickProductId}
         quickClientQuantities={quickClientQuantities}
         setQuickClientQuantities={setQuickClientQuantities}
+        quickClientOrder={quickClientOrder}
+        setQuickClientOrder={setQuickClientOrder}
         vitrineSearch={vitrineSearch}
         setVitrineSearch={setVitrineSearch}
         clientSearch={quickClientSearch}
         setClientSearch={setQuickClientSearch}
-        onSave={submitQuickBatchSale}
+        onSave={handleOpenQuickConfirm}
         savingSale={savingQuickSale}
         onMinimize={() => setIsQuickSaleHome(false)}
         onAddProduct={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }}
         onAddClient={() => { setClientForm(emptyClient); setShowClientForm(true); }}
+        onQuickCreateClient={handleQuickCreateClient}
         onOpenMessages={() => setShowVitrineMessages(true)}
         dueReminders={dueReminders}
         onReviewReminder={reviewDueReminder}
@@ -546,8 +626,116 @@ export default function Home() {
       </>
     )}
 
-    {showProductForm && <Modal title={productForm.id ? "Editar produto" : "Novo produto"} onClose={() => { setProductImageFile(null); setShowProductForm(false); }}><div className="form-grid"><label>Nome do produto<input value={productForm.name} onChange={event => setProductForm({ ...productForm, name: event.target.value })} placeholder="Ex.: Shorts alfaiataria" /></label><label>Preço unitário<input value={productForm.price} onChange={event => setProductForm({ ...productForm, price: event.target.value })} placeholder="22,00" inputMode="decimal" /></label><label>Categoria<input value={productForm.category} onChange={event => setProductForm({ ...productForm, category: event.target.value })} placeholder="Ex.: Verão" /></label><label className="full product-upload-field">Foto do produto <span className="optional">opcional · até 15 MB</span><input type="file" accept="image/*" onChange={event => setProductImageFile(event.target.files?.[0] ?? null)} />{(productImagePreview || productForm.imageUrl) ? <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "6px" }}><img className="upload-preview" src={productImagePreview || productForm.imageUrl} alt="Prévia da foto do produto" /><div style={{ display: "grid", gap: "4px" }}><span className="upload-selected">{productImageFile ? `Selecionada: ${productImageFile.name}` : "Foto atual do produto"}</span><button type="button" className="text-button" onClick={e => { e.preventDefault(); setProductImageFile(null); setProductForm({ ...productForm, imageUrl: "" }); }}>Remover foto</button></div></div> : <span className="upload-hint">Escolha uma foto do celular ou computador</span>}</label><label className="full">Descrição <span className="optional">opcional</span><textarea value={productForm.description} onChange={event => setProductForm({ ...productForm, description: event.target.value })} placeholder="Detalhes que ajudam a identificar a peça" /></label></div><div className="modal-actions"><Button variant="outline" onClick={() => { setProductImageFile(null); setShowProductForm(false); }} disabled={savingProduct}>Cancelar</Button><Button onClick={submitProduct} disabled={savingProduct || !productForm.name || moneyToCents(productForm.price) < 1}>{savingProduct ? "Salvando produto..." : productForm.id ? "Salvar alterações" : "Cadastrar produto"}</Button></div></Modal>}
-    {showClientForm && <Modal title={clientForm.id ? "Editar cliente" : "Novo cliente"} onClose={() => setShowClientForm(false)}><div className="form-grid"><label>Nome completo<input value={clientForm.name} onChange={event => setClientForm({ ...clientForm, name: event.target.value })} placeholder="Nome da cliente" /></label><label>Telefone com DDD<input value={clientForm.phone} onChange={event => setClientForm({ ...clientForm, phone: event.target.value })} placeholder="65 99999-9999" inputMode="tel" /></label><label className="full">Observações <span className="optional">opcional</span><textarea value={clientForm.notes} onChange={event => setClientForm({ ...clientForm, notes: event.target.value })} placeholder="Preferências, cidade ou lembretes" /></label></div><div className="modal-actions"><Button variant="outline" onClick={() => setShowClientForm(false)}>Cancelar</Button><Button onClick={submitClient} disabled={!clientForm.name || clientForm.phone.replace(/\D/g, "").length < 8}>{clientForm.id ? "Salvar alterações" : "Cadastrar cliente"}</Button></div></Modal>}
+    {showProductForm && <Modal title={productForm.id ? "Editar produto" : "Novo produto"} onClose={() => { setProductImageFile(null); setShowProductForm(false); }}><div className="form-grid"><label>Nome do produto<input value={productForm.name} onChange={event => setProductForm({ ...productForm, name: event.target.value })} placeholder="Ex.: Shorts alfaiataria" /></label><label>Preço unitário<input value={productForm.price} onChange={event => setProductForm({ ...productForm, price: event.target.value })} placeholder="22,00" inputMode="decimal" /></label><label>Categoria<input value={productForm.category} onChange={event => setProductForm({ ...productForm, category: event.target.value })} placeholder="Ex.: Verão" /></label><label className="full product-upload-field">Foto do produto <span className="optional">opcional · até 15 MB</span><input type="file" accept="image/*" onChange={event => setProductImageFile(event.target.files?.[0] ?? null)} />{(productImagePreview || productForm.imageUrl) ? <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "6px" }}><img className="upload-preview" src={productImagePreview || productForm.imageUrl} alt="Prévia da foto do produto" /><div style={{ display: "grid", gap: "4px" }}><span className="upload-selected">{productImageFile ? `Selecionada: ${productImageFile.name}` : "Foto atual do produto"}</span><button type="button" className="text-button" onClick={e => { e.preventDefault(); setProductImageFile(null); setProductForm({ ...productForm, imageUrl: "" }); }}>Remover foto</button></div></div> : <span className="upload-hint">Escolha uma foto do celular ou computador</span>}</label><label className="full">Descrição <span className="optional">opcional</span><textarea value={productForm.description} onChange={event => setProductForm({ ...productForm, description: event.target.value })} placeholder="Detalhes que ajudam a identificar a peça" /></label></div><div className="modal-actions"><Button variant="outline" onClick={() => { setProductImageFile(null); setShowProductForm(false); }} disabled={savingProduct}>Cancelar</Button><Button onClick={submitProduct} disabled={savingProduct || (!productForm.name.trim() && moneyToCents(productForm.price) < 1)}>{savingProduct ? "Salvando produto..." : productForm.id ? "Salvar alterações" : "Cadastrar produto"}</Button></div></Modal>}
+    {showClientForm && <Modal title={clientForm.id ? "Editar cliente" : "Novo cliente"} onClose={() => setShowClientForm(false)}><div className="form-grid"><label>Nome completo<input value={clientForm.name} onChange={event => setClientForm({ ...clientForm, name: event.target.value })} placeholder="Nome da cliente" /></label><label>Telefone com DDD<input value={clientForm.phone} onChange={event => setClientForm({ ...clientForm, phone: event.target.value })} placeholder="65 99999-9999" inputMode="tel" /></label><label className="full">Observações <span className="optional">opcional</span><textarea value={clientForm.notes} onChange={event => setClientForm({ ...clientForm, notes: event.target.value })} placeholder="Preferências, cidade ou lembretes" /></label></div><div className="modal-actions"><Button variant="outline" onClick={() => setShowClientForm(false)}>Cancelar</Button><Button onClick={submitClient} disabled={!clientForm.name.trim() && !clientForm.phone.trim()}>{clientForm.id ? "Salvar alterações" : "Cadastrar cliente"}</Button></div></Modal>}
+    {showQuickConfirmModal && quickProduct && (
+      <Modal
+        title="Confirmar Pedidos do Lote"
+        onClose={() => setShowQuickConfirmModal(false)}
+      >
+        <div className="quick-confirm-content">
+          <div className="quick-confirm-product-card">
+            <div className="quick-confirm-thumb">
+              {quickProduct.imageUrl ? (
+                <img src={quickProduct.imageUrl} alt={quickProduct.name} />
+              ) : (
+                <Package size={24} className="text-teal" />
+              )}
+            </div>
+            <div className="quick-confirm-product-info">
+              <span className="eyebrow">produto selecionado</span>
+              <strong>{quickProduct.name}</strong>
+              <small>{formatMoney(quickProduct.priceCents)} por peça</small>
+            </div>
+          </div>
+
+          <div className="quick-confirm-stats">
+            <div className="quick-confirm-stat">
+              <span>Clientes</span>
+              <strong>{quickConfirmItems.length}</strong>
+            </div>
+            <div className="quick-confirm-stat">
+              <span>Total de peças</span>
+              <strong>{quickConfirmTotalPieces} un</strong>
+            </div>
+            <div className="quick-confirm-stat accent">
+              <span>Valor total</span>
+              <strong>{formatMoney(quickConfirmTotalCents)}</strong>
+            </div>
+          </div>
+
+          <div className="quick-confirm-list-header">
+            <span>Ordem de registro (conforme sua seleção):</span>
+          </div>
+
+          <div className="quick-confirm-clients-list">
+            {quickConfirmItems.map((item, index) => (
+              <div key={item.client.id} className="quick-confirm-row">
+                <span className="quick-confirm-idx">#{index + 1}</span>
+                <div className="row-avatar">{item.client.name.charAt(0)}</div>
+                <div className="quick-confirm-client-info">
+                  <strong>{item.client.name}</strong>
+                  <small>{item.client.phone}</small>
+                </div>
+                <div className="quick-confirm-qty-box">
+                  <div className="client-qty-inline">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(1, item.qty - 1);
+                        setQuickClientQuantities(prev => ({ ...prev, [item.client.id]: next }));
+                      }}
+                    >
+                      <Minus size={11} />
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.qty}
+                      onChange={e => {
+                        const next = Math.max(1, Number(e.target.value) || 1);
+                        setQuickClientQuantities(prev => ({ ...prev, [item.client.id]: next }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = item.qty + 1;
+                        setQuickClientQuantities(prev => ({ ...prev, [item.client.id]: next }));
+                      }}
+                    >
+                      <Plus size={11} />
+                    </button>
+                  </div>
+                  <strong className="quick-confirm-row-total">
+                    {formatMoney(item.qty * quickProduct.priceCents)}
+                  </strong>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="modal-actions">
+            <Button
+              variant="outline"
+              onClick={() => setShowQuickConfirmModal(false)}
+              disabled={savingQuickSale}
+            >
+              Voltar / Continuar editando
+            </Button>
+            <Button
+              onClick={submitQuickBatchSale}
+              disabled={savingQuickSale || quickConfirmItems.length === 0}
+            >
+              <Check size={16} />
+              {savingQuickSale
+                ? "Registrando vendas..."
+                : `Confirmar e Registrar (${quickConfirmItems.length} pedidos)`}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    )}
     {showVcf && <Modal title="Importar contatos VCF" onClose={() => setShowVcf(false)}><div className="import-summary"><div><strong>{vcfPreview.length}</strong><span>contatos na prévia</span></div><div><strong>{new Set(vcfPreview.map(contact => contact.phone.replace(/\D/g, ""))).size}</strong><span>telefones únicos</span></div><div className={vcfInvalidCount ? "import-warning" : ""}><strong>{vcfInvalidCount}</strong><span>telefones curtos ignorados</span></div></div>{vcfInvalidCount > 0 && <p className="microcopy import-warning-text">Alguns cartões possuem códigos ou telefones incompletos. Eles serão ignorados; os contatos válidos serão importados normalmente.</p>}<div className="vcf-list">{vcfPreview.map((contact, index) => <div className={`vcf-row ${contact.phone.replace(/\D/g, "").length < 8 ? "invalid-row" : ""}`} key={`${contact.phone}-${index}`}><span>{contact.name}</span><small>{contact.phone}{contact.phone.replace(/\D/g, "").length < 8 ? " · ignorado" : ""}</small></div>)}</div><div className="modal-actions"><Button variant="outline" onClick={() => setShowVcf(false)}>Cancelar</Button><Button disabled={!vcfPreview.length || vcfInvalidCount === vcfPreview.length || importVcf.isPending} onClick={() => run(async () => { const result = await importVcf.mutateAsync({ contacts: vcfPreview }); if (result.invalid) toast.info(`${result.invalid} contato(s) foram ignorado(s) por telefone insuficiente`); setShowVcf(false); }, "Contatos válidos importados")}>{importVcf.isPending ? "Importando contatos..." : "Importar contatos válidos"}</Button></div></Modal>}
     {chargeDraft && <Modal title="Preparar cobrança" onClose={() => setChargeDraft(null)}><div className="charge-recipient"><div className="avatar">{chargeDraft.order.client?.name?.charAt(0) ?? "C"}</div><div><strong>{chargeDraft.order.client?.name}</strong><span>{chargeDraft.order.client?.phone} · saldo {formatMoney(Math.max(0, chargeDraft.order.totalCents - chargeDraft.order.paidCents))}</span></div></div><label>Modelo<select value={chargeDraft.templateId} onChange={event => { const id = Number(event.target.value); const template = templates.find(item => item.id === id); if (template) setChargeDraft({ ...chargeDraft, templateId: id, message: templateMessage(template.body, chargeDraft.order) }); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Mensagem<textarea className="message-editor" value={chargeDraft.message} onChange={event => setChargeDraft({ ...chargeDraft, message: event.target.value })} /></label><p className="microcopy">O botão abre o WhatsApp com o texto preenchido. O envio final depende da sua confirmação dentro do WhatsApp.</p><div className="modal-actions"><Button variant="outline" onClick={() => navigator.clipboard?.writeText(chargeDraft.message).then(() => toast.success("Mensagem copiada"))}><Copy size={16} /> Copiar</Button><Button onClick={submitCharge}><MessageCircle size={16} /> Abrir WhatsApp</Button></div></Modal>}
     {selectedOrderId && <OrderDrawer order={selectedOrder} clients={clients} products={products} editor={orderEditor} setEditor={setOrderEditor} editing={editingOrder} setEditing={setEditingOrder} paymentAmount={paymentAmount} setPaymentAmount={setPaymentAmount} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onClose={() => setSelectedOrderId(null)} onSaveEdit={submitOrderEdit} onPayment={submitPayment} onCancel={() => run(() => cancelOrder.mutateAsync({ id: selectedOrderId }), "Pedido cancelado")} onCharge={openCharge} />}
@@ -572,6 +760,8 @@ function QuickSaleHomeView({
   setQuickProductId,
   quickClientQuantities,
   setQuickClientQuantities,
+  quickClientOrder,
+  setQuickClientOrder,
   vitrineSearch,
   setVitrineSearch,
   clientSearch,
@@ -581,6 +771,7 @@ function QuickSaleHomeView({
   onMinimize,
   onAddProduct,
   onAddClient,
+  onQuickCreateClient,
   onOpenMessages,
   dueReminders = [],
   onReviewReminder,
@@ -594,16 +785,32 @@ function QuickSaleHomeView({
 
   const activeClients = useMemo(() => clients.filter((c: any) => c.active), [clients]);
 
-  const selectedClients = useMemo(
-    () => activeClients.filter((c: any) => Number(quickClientQuantities[c.id]) > 0),
-    [activeClients, quickClientQuantities]
-  );
+  // Mantém a ordem rigorosa de seleção dos clientes e reconcilia qualquer seleção pendente!
+  const selectedClients = useMemo(() => {
+    const clientMap = new Map<number, any>(activeClients.map((c: any) => [c.id, c]));
+    const orderSet = new Set((quickClientOrder || []).map(Number));
+    const allIds = [
+      ...(quickClientOrder || []).map(Number),
+      ...Object.keys(quickClientQuantities || {}).map(Number).filter(id => !orderSet.has(id))
+    ];
+    return allIds
+      .map(id => clientMap.get(id))
+      .filter((c: any): c is any => Boolean(c) && Number(quickClientQuantities[c.id]) > 0);
+  }, [activeClients, quickClientOrder, quickClientQuantities]);
 
   const unselectedClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase();
+    const digitsOnly = q.replace(/\D/g, "");
     return activeClients
       .filter((c: any) => !quickClientQuantities[c.id])
-      .filter((c: any) => !q || c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q));
+      .filter((c: any) => {
+        if (!q) return true;
+        const nameMatch = (c.name || "").toLowerCase().includes(q);
+        const phoneStr = c.phone || "";
+        const phoneMatch = phoneStr.toLowerCase().includes(q);
+        const phoneDigitsMatch = digitsOnly.length >= 3 && phoneStr.replace(/\D/g, "").includes(digitsOnly);
+        return nameMatch || phoneMatch || phoneDigitsMatch;
+      });
   }, [activeClients, quickClientQuantities, clientSearch]);
 
   const selectProduct = (productId: number) => {
@@ -615,6 +822,7 @@ function QuickSaleHomeView({
       ...prev,
       [clientId]: Math.max(1, prev[clientId] || 1),
     }));
+    setQuickClientOrder((prev: number[]) => (prev.includes(clientId) ? prev : [...prev, clientId]));
   };
 
   const removeClientSelection = (clientId: number) => {
@@ -623,6 +831,7 @@ function QuickSaleHomeView({
       delete next[clientId];
       return next;
     });
+    setQuickClientOrder((prev: number[]) => prev.filter(id => id !== clientId));
   };
 
   const updateClientQuantity = (clientId: number, nextQty: number) => {
@@ -759,7 +968,10 @@ function QuickSaleHomeView({
               <button
                 type="button"
                 className="clear-selected-btn"
-                onClick={() => setQuickClientQuantities({})}
+                onClick={() => {
+                  setQuickClientQuantities({});
+                  setQuickClientOrder([]);
+                }}
                 title="Limpar selecionadas"
               >
                 {selectedClients.length} selecionada(s) · limpar
@@ -768,10 +980,11 @@ function QuickSaleHomeView({
           </div>
 
           <div className="quick-client-list">
-            {selectedClients.map((client: any) => {
+            {selectedClients.map((client: any, index: number) => {
               const qty = Math.max(1, Number(quickClientQuantities[client.id]) || 1);
               return (
                 <div key={`sel-${client.id}`} className="client-card-item is-selected">
+                  <span className="client-order-badge" title="Ordem de seleção">#{index + 1}</span>
                   <div className="row-avatar">{client.name.charAt(0)}</div>
                   <div className="client-card-text">
                     <strong>{client.name}</strong>
@@ -803,6 +1016,25 @@ function QuickSaleHomeView({
               );
             })}
 
+            {/* Quando a busca não encontra cliente, oferece cadastro imediato aproveitando o termo */}
+            {clientSearch.trim() && unselectedClients.length === 0 && (
+              <div className="quick-client-create-callout">
+                <div className="quick-callout-text">
+                  <UserPlus size={18} className="text-teal" />
+                  <div>
+                    <strong>Nenhuma cliente encontrada</strong>
+                    <small>Deseja cadastrar "{clientSearch.trim()}" agora?</small>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => onQuickCreateClient(clientSearch.trim())}
+                >
+                  <Plus size={14} /> Cadastrar "{clientSearch.trim().slice(0, 24)}"
+                </Button>
+              </div>
+            )}
+
             {unselectedClients.map((client: any) => (
               <div
                 key={client.id}
@@ -827,9 +1059,21 @@ function QuickSaleHomeView({
               </div>
             ))}
 
-            {selectedClients.length === 0 && unselectedClients.length === 0 && (
+            {/* Atalho para cadastrar nova cliente mesmo quando há outros resultados parciais */}
+            {clientSearch.trim() && unselectedClients.length > 0 && (
+              <button
+                type="button"
+                className="quick-add-custom-client-btn"
+                onClick={() => onQuickCreateClient(clientSearch.trim())}
+              >
+                <Plus size={13} />
+                <span>Cadastrar nova cliente aproveitando "{clientSearch.trim()}"</span>
+              </button>
+            )}
+
+            {selectedClients.length === 0 && unselectedClients.length === 0 && !clientSearch.trim() && (
               <div className="quick-empty-box">
-                <span>Cliente não encontrada</span>
+                <span>Nenhuma cliente disponível</span>
                 <Button size="sm" variant="outline" onClick={onAddClient}>
                   <Plus size={13} /> Nova cliente
                 </Button>
@@ -840,15 +1084,31 @@ function QuickSaleHomeView({
           <Button
             size="lg"
             className="quick-finish-btn"
-            onClick={onSave}
-            disabled={savingSale || selectedClients.length === 0 || !quickProductId}
+            onClick={() => {
+              if (!quickProductId) {
+                toast.error("Selecione um produto na vitrine para finalizar o lote");
+                return;
+              }
+              if (selectedClients.length === 0) {
+                toast.error("Selecione pelo menos uma cliente na lista");
+                return;
+              }
+              onSave();
+            }}
+            disabled={savingSale}
           >
             <Check size={17} />
             {savingSale
               ? "Finalizando..."
+              : !quickProductId && selectedClients.length === 0
+              ? "Selecione produto e clientes"
+              : !quickProductId
+              ? "Selecione o produto acima"
+              : selectedClients.length === 0
+              ? "Selecione as clientes"
               : selectedClients.length > 1
               ? `Finalizar (${selectedClients.length} clientes)`
-              : "Finalizar"}
+              : "Finalizar (1 cliente)"}
           </Button>
         </aside>
       </div>
