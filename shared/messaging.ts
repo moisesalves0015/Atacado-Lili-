@@ -139,6 +139,7 @@ export function progressLine(progress: LotProgress) {
  */
 export function buildGroupUpdateText(input: {
   productName: string;
+  productPriceCents?: number | null;
   productDescription?: string | null;
   rows: ReportRow[];
   goalPieces?: number | null;
@@ -147,30 +148,52 @@ export function buildGroupUpdateText(input: {
   const options = { ...defaultGroupUpdateOptions, ...input.options };
   const totals = reportTotals(input.rows);
   const parts: string[] = [];
-  if (options.intro.trim()) parts.push(options.intro.trim());
 
+  // 1. Abertura
+  if (options.intro.trim()) {
+    parts.push(options.intro.trim());
+  }
+
+  // 2. Nome do Produto e Valor
+  const productLines: string[] = [input.productName];
+  if (options.showPrices) {
+    const priceCents = input.productPriceCents ?? input.rows[0]?.unitPriceCents;
+    if (priceCents) {
+      productLines.push(`VALOR: ${formatMoney(priceCents)}`);
+    }
+  }
+  parts.push(productLines.join("\n"));
+
+  // 3. Descrição do produto
   if (options.showDescription !== false && input.productDescription?.trim()) {
-    parts.push(`📝 *Detalhes do produto:*\n${input.productDescription.trim()}`);
+    parts.push(input.productDescription.trim());
   }
 
+  // 4. Lista de clientes com quantidades e status
   if (!input.rows.length) {
-    parts.push(`${input.productName}\n\nAinda sem quantidades registradas.`);
+    parts.push("Ainda sem quantidades registradas.");
   } else if (options.showNames) {
-    parts.push(
-      buildReportBlocks(input.rows, {
-        includePhones: options.showPhones,
-        includePrices: options.showPrices,
-        showPaymentStatus: options.showPaymentStatus,
-      }).join("\n\n")
-    );
-  } else {
-    const price = new Set(input.rows.map(row => row.unitPriceCents));
-    const priceText = options.showPrices && price.size === 1 ? ` ${formatMoney([...price][0])}` : "";
-    parts.push(`${input.productName}${priceText}`);
+    const formatClient = (row: ReportRow) => {
+      const isPaid = Boolean(row.isPaid) || row.status === "paid" || (row.paidCents !== undefined && row.paidCents >= row.totalCents && row.totalCents > 0);
+      const isCharged = Boolean(row.isCharged);
+      const statusTag = options.showPaymentStatus
+        ? isPaid
+          ? " ✅ Pago"
+          : isCharged
+          ? " 📲 Cobrado"
+          : " ⏳ Pendente"
+        : "";
+      const phoneLine = options.showPhones && row.phone ? `\n${row.phone}` : "";
+      return `${row.clientName} – ${row.quantity}${statusTag}${phoneLine}`;
+    };
+    parts.push(input.rows.map(formatClient).join("\n"));
   }
 
+  // 5. Totais e Resumo de status
   const footer: string[] = [];
-  if (options.showTotals) footer.push(`Total de peças: ${totals.pieces}\nTotal de clientes: ${totals.clients}`);
+  if (options.showTotals) {
+    footer.push(`Total de peças: ${totals.pieces}\nTotal de clientes: ${totals.clients}`);
+  }
   if (options.showPaymentStatus && input.rows.length > 0) {
     const paidCount = input.rows.filter(r => Boolean(r.isPaid) || r.status === "paid" || (r.paidCents !== undefined && r.paidCents >= r.totalCents && r.totalCents > 0)).length;
     const chargedCount = input.rows.filter(r => Boolean(r.isCharged) && !r.isPaid && r.status !== "paid").length;
@@ -182,10 +205,17 @@ export function buildGroupUpdateText(input: {
     if (progress) footer.push(progressLine(progress));
   }
   if (footer.length) parts.push(footer.join("\n"));
+
+  // 6. Chave Pix (se selecionada)
   if (options.includePix) {
     parts.push("*Chave Pix* 👇🏻\nKriciaquaresma@gmail.com");
   }
-  if (options.closing.trim()) parts.push(options.closing.trim());
+
+  // 7. Fechamento
+  if (options.closing.trim()) {
+    parts.push(options.closing.trim());
+  }
+
   return parts.join("\n\n");
 }
 

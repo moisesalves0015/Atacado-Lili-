@@ -254,7 +254,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
   const goal = Number(goalInput) >= 1 ? Math.floor(Number(goalInput)) : null;
   const progress = computeProgress(totals.pieces, goal);
   const destination = destinations.find((item: any) => String(item.id) === destinationId && item.active) ?? null;
-  const generated = useMemo(() => (product ? buildGroupUpdateText({ productName: product.name, productDescription: product.description, rows, goalPieces: goal, options }) : ""), [product, rows, goal, options]);
+  const generated = useMemo(() => (product ? buildGroupUpdateText({ productName: product.name, productPriceCents: product.priceCents, productDescription: product.description, rows, goalPieces: goal, options }) : ""), [product, rows, goal, options]);
   const stale = Boolean(override && override.base !== generated);
   const text = override ? override.text : generated;
   const set = (patch: Partial<GroupUpdateOptions>) => setOptions(current => ({ ...current, ...patch }));

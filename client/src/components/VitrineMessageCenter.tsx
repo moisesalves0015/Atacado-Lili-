@@ -279,6 +279,7 @@ function VitrineGroupUpdateFlow({
     if (!selectedProduct) return "";
     return buildGroupUpdateText({
       productName: selectedProduct.name,
+      productPriceCents: selectedProduct.priceCents,
       productDescription: selectedProduct.description,
       rows,
       goalPieces,
