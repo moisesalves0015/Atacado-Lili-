@@ -164,6 +164,12 @@ export function buildGroupUpdateText(input: {
 
   const footer: string[] = [];
   if (options.showTotals) footer.push(`Total de peças: ${totals.pieces}\nTotal de clientes: ${totals.clients}`);
+  if (options.showPaymentStatus && input.rows.length > 0) {
+    const paidCount = input.rows.filter(r => Boolean(r.isPaid) || r.status === "paid" || (r.paidCents !== undefined && r.paidCents >= r.totalCents && r.totalCents > 0)).length;
+    const chargedCount = input.rows.filter(r => Boolean(r.isCharged) && !r.isPaid && r.status !== "paid").length;
+    const pendingCount = Math.max(0, input.rows.length - paidCount - chargedCount);
+    footer.push(`Status: ${paidCount} pago(s) ✅ · ${chargedCount} cobrado(s) 📲 · ${pendingCount} pendente(s) ⏳`);
+  }
   if (options.showProgress) {
     const progress = computeProgress(totals.pieces, input.goalPieces);
     if (progress) footer.push(progressLine(progress));

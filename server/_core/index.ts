@@ -34,17 +34,20 @@ async function startServer() {
   server.listen(currentPort, "0.0.0.0", () => {
     console.log(`Server listening on http://localhost:${currentPort}`);
 
-    // Também escuta na outra porta comum (3000 ou 3001) para que funcione em ambas no navegador
-    const altPort = currentPort === 3001 ? 3000 : 3001;
-    try {
-      const altServer = createServer(app);
-      altServer.on("error", () => {
-        // Ignora se a porta alternativa já estiver em uso
-      });
-      altServer.listen(altPort, "0.0.0.0", () => {
-        console.log(`Also listening on http://localhost:${altPort}`);
-      });
-    } catch {}
+    // Também escuta em todas as portas comuns (3000 a 3005) para que funcione em qualquer aba aberta pelo usuário
+    const candidatePorts = [3000, 3001, 3002, 3003, 3004, 3005];
+    for (const altPort of candidatePorts) {
+      if (altPort === currentPort) continue;
+      try {
+        const altServer = createServer(app);
+        altServer.on("error", () => {
+          // Ignora se a porta alternativa já estiver em uso
+        });
+        altServer.listen(altPort, "0.0.0.0", () => {
+          console.log(`Also listening on http://localhost:${altPort}`);
+        });
+      } catch {}
+    }
   });
 }
 

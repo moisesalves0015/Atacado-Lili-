@@ -141,12 +141,16 @@ export default function VitrineMessageCenter({
             <VitrineGroupUpdateFlow
               products={activeProducts}
               orders={orders}
+              recentActions={overview?.actions ?? []}
               selectedProductId={selectedProductId}
               onSelectProduct={setSelectedProductId}
               destinations={destinations}
               lots={overview?.lots ?? []}
               onActionRecorded={() => {
                 void utils.messages.overview.invalidate();
+                void utils.orders.list.invalidate();
+                void utils.reports.rows.invalidate();
+                void utils.dashboard.summary.invalidate();
               }}
               recordAction={recordAction}
             />
@@ -252,12 +256,13 @@ function VitrineGroupUpdateFlow({
     return rawRows.map(r => {
       const o = orderMap.get(r.orderId);
       const isPaid = (o && (o.status === "paid" || o.paidCents >= o.totalCents)) || r.status === "paid" || Boolean(r.isPaid);
-      const isCharged = chargedOrderIds.has(r.orderId) || Boolean(r.isCharged);
+      const isCharged = chargedOrderIds.has(r.orderId) || Boolean(o?.isCharged) || Boolean(r.isCharged);
       return {
         ...r,
         status: isPaid ? "paid" : (o?.status ?? r.status ?? "pending"),
         isPaid,
         isCharged,
+        paidCents: o?.paidCents ?? r.paidCents,
       };
     });
   }, [rawRows, orders, recentActions]);
@@ -798,6 +803,15 @@ function VitrineChargeCardItem({
   const [actionStatus, setActionStatus] = useState<ActionStatus | null>(() => (order.isCharged ? "manual_confirmed" : null));
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (order.isCharged && !actionStatus) {
+      setActionStatus("manual_confirmed");
+    }
+    if (order.status && order.status !== orderStatus) {
+      setOrderStatus(order.status);
+    }
+  }, [order.isCharged, order.status, orderStatus, actionStatus]);
+
   const createPayment = trpc.payments.create.useMutation();
   const cancelOrder = trpc.orders.cancel.useMutation();
   const utils = trpc.useUtils();
@@ -997,10 +1011,10 @@ function VitrineChargeCardItem({
           </div>
 
           <span className={`vmc-status-chip vmc-status-${currentEffectiveStatus}`}>
-            {currentEffectiveStatus === "paid" && "Pago"}
-            {currentEffectiveStatus === "cancelled" && "Cancelado"}
-            {currentEffectiveStatus === "charged" && "Cobrado"}
-            {currentEffectiveStatus === "pending" && "Pendente"}
+            {currentEffectiveStatus === "paid" && "✅ Pago"}
+            {currentEffectiveStatus === "cancelled" && "❌ Cancelado"}
+            {currentEffectiveStatus === "charged" && "📲 Cobrado"}
+            {currentEffectiveStatus === "pending" && "⏳ Pendente"}
           </span>
 
           <button

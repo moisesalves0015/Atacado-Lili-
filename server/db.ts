@@ -930,6 +930,7 @@ const defaultTemplates = [
   { name: "Cobrança direta", body: "Oi, {nome_cliente}! Seu pedido está com pagamento pendente no valor de {valor_pendente}. Consegue realizar o pagamento hoje?" },
   { name: "Confirmação de pagamento", body: "Olá, {nome_cliente}! Recebi seu pagamento de {valor_pago}. Obrigada pela confiança!" },
   { name: "Agradecimento", body: "Obrigada pela compra, {nome_cliente}! Qualquer coisa estou à disposição." },
+  { name: "Fechamento de lista com Pix", body: "Boa tarde, {nome_cliente}!\nPassando pra informar que fechamos a lista desse {produto_nome} e já vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* 👇🏻\n{chave_pix}\n\n*Resumo do seu pedido:*\n*{produto_nome}*\n{quantidade} × {preco_unitario}\n*Valor total:* {valor_total}\n\n⚠️ *Importante:* Para garantir suas peças no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!" },
 ];
 
 export async function listTemplates() {
@@ -1033,6 +1034,15 @@ export async function getReportRows(input: { productId?: number; from?: string; 
     const orderMap = new Map(store.orders.map(o => [o.id, o]));
     const clientMap = new Map(store.clients.map(c => [c.id, c]));
     const productMap = new Map(store.products.map(p => [p.id, p]));
+    const chargedOrderIds = new Set<number>();
+    for (const a of store.messageActions) {
+      if (a.kind === "charge" && a.orderId && (a.status === "manual_confirmed" || a.status === "share_started")) {
+        chargedOrderIds.add(Number(a.orderId));
+      }
+    }
+    for (const c of store.charges) {
+      if (c.orderId) chargedOrderIds.add(Number(c.orderId));
+    }
     const rows = store.orderItems
       .filter(i => {
         if (input.productId && i.productId !== input.productId) return false;
@@ -1055,38 +1065,62 @@ export async function getReportRows(input: { productId?: number; from?: string; 
         if (input.to && row.order.orderDate > new Date(`${input.to}T23:59:59`)) return false;
         return true;
       })
-      .map(row => ({
-        orderId: row.order.id,
-        clientId: row.client.id,
-        clientName: row.client.name,
-        phone: row.client.phone,
-        productId: row.product.id,
-        productName: row.product.name,
-        unitPriceCents: row.item.unitPriceCents,
-        quantity: row.item.quantity,
-        totalCents: row.item.totalCents,
-        orderDate: row.order.orderDate,
-      }));
+      .map(row => {
+        const orderStatus = effectiveStatus(row.order);
+        const isPaid = orderStatus === "paid" || (row.order.paidCents >= row.order.totalCents && row.order.totalCents > 0);
+        const isCharged = chargedOrderIds.has(row.order.id);
+        return {
+          orderId: row.order.id,
+          clientId: row.client.id,
+          clientName: row.client.name,
+          phone: row.client.phone,
+          productId: row.product.id,
+          productName: row.product.name,
+          unitPriceCents: row.item.unitPriceCents,
+          quantity: row.item.quantity,
+          totalCents: row.item.totalCents,
+          orderDate: row.order.orderDate,
+          status: isPaid ? "paid" : orderStatus,
+          isPaid,
+          isCharged,
+          paidCents: row.order.paidCents,
+        };
+      });
   }
   const rows = await db.select({ item: orderItems, order: orders, client: clients, product: products }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).innerJoin(products, eq(orderItems.productId, products.id)).where(input.productId ? eq(orderItems.productId, input.productId) : undefined).orderBy(products.id, orders.id, orderItems.id);
+  const chargeActions = await db.select({ orderId: messageActions.orderId }).from(messageActions).where(and(eq(messageActions.kind, "charge"), inArray(messageActions.status, ["manual_confirmed", "share_started"])));
+  const chargesList = await db.select({ orderId: charges.orderId }).from(charges);
+  const dbChargedOrderIds = new Set<number>([
+    ...chargeActions.map(a => Number(a.orderId)),
+    ...chargesList.map(c => Number(c.orderId)),
+  ]);
   return rows.filter(row => {
     if (row.order.status === "cancelled") return false;
     if (input.orderIds?.length && !input.orderIds.includes(row.order.id)) return false;
     if (input.from && row.order.orderDate < new Date(`${input.from}T00:00:00`)) return false;
     if (input.to && row.order.orderDate > new Date(`${input.to}T23:59:59`)) return false;
     return true;
-  }).map(row => ({
-    orderId: row.order.id,
-    clientId: row.client.id,
-    clientName: row.client.name,
-    phone: row.client.phone,
-    productId: row.product.id,
-    productName: row.product.name,
-    unitPriceCents: row.item.unitPriceCents,
-    quantity: row.item.quantity,
-    totalCents: row.item.totalCents,
-    orderDate: row.order.orderDate,
-  }));
+  }).map(row => {
+    const orderStatus = effectiveStatus(row.order);
+    const isPaid = orderStatus === "paid" || (row.order.paidCents >= row.order.totalCents && row.order.totalCents > 0);
+    const isCharged = dbChargedOrderIds.has(row.order.id);
+    return {
+      orderId: row.order.id,
+      clientId: row.client.id,
+      clientName: row.client.name,
+      phone: row.client.phone,
+      productId: row.product.id,
+      productName: row.product.name,
+      unitPriceCents: row.item.unitPriceCents,
+      quantity: row.item.quantity,
+      totalCents: row.item.totalCents,
+      orderDate: row.order.orderDate,
+      status: isPaid ? "paid" : orderStatus,
+      isPaid,
+      isCharged,
+      paidCents: row.order.paidCents,
+    };
+  });
 }
 
 export async function getAuditLogs() {

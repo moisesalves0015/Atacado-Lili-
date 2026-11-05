@@ -323,7 +323,7 @@ import path from "node:path";
 
 // data/db.json
 var db_default = {
-  updatedAt: 1793842171871,
+  updatedAt: 1793842999729,
   counters: {
     products: 14,
     clients: 2351,
@@ -331,13 +331,13 @@ var db_default = {
     orderItems: 68,
     payments: 3,
     chargeTemplates: 7,
-    charges: 17,
-    auditLogs: 158,
+    charges: 18,
+    auditLogs: 160,
     messageDestinations: 1,
     messageLots: 0,
     messageReminders: 0,
     reminderEvents: 0,
-    messageActions: 28
+    messageActions: 29
   },
   messageDestinations: [
     {
@@ -830,6 +830,23 @@ var db_default = {
       statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T01:29:31.237Z"}]',
       createdAt: "2026-11-05T01:29:31.237Z",
       updatedAt: "2026-11-05T01:29:31.237Z"
+    },
+    {
+      id: 29,
+      kind: "charge",
+      status: "share_started",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 1,
+      orderId: 65,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-XNPRBI \u2014 Moises Santos",
+      message: "Boa tarde, Moises Santos!\nPassando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Resumo do seu pedido:*\n*Vestido Midi Longo Fivela*\n5 pe\xE7as \xD7 R$\xA039,00\n*Valor total:* R$\xA0195,00\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
+      idempotencyKey: "vcharge-65:af279036-0588-4d18-a1e6-651cba99ca63",
+      statusLog: '[{"status":"share_started","at":"2026-11-05T01:43:19.505Z"}]',
+      createdAt: "2026-11-05T01:43:19.505Z",
+      updatedAt: "2026-11-05T01:43:19.505Z"
     }
   ],
   products: [
@@ -24502,6 +24519,19 @@ var db_default = {
   ],
   orders: [
     {
+      id: 67,
+      code: "PV-2026-M-BM-U",
+      clientId: 2351,
+      totalCents: 3900,
+      paidCents: 0,
+      status: "pending",
+      orderDate: "2026-11-05T01:28:11.250Z",
+      dueDate: null,
+      notes: null,
+      createdAt: "2026-11-05T01:28:11.250Z",
+      updatedAt: "2026-11-05T01:28:11.250Z"
+    },
+    {
       id: 66,
       code: "PV-2026-GLSB7K",
       clientId: 2351,
@@ -25358,19 +25388,6 @@ var db_default = {
       notes: null,
       createdAt: "2026-11-02T17:12:41.734Z",
       updatedAt: "2026-11-02T17:12:41.734Z"
-    },
-    {
-      id: 67,
-      code: "PV-2026-M-BM-U",
-      clientId: 2351,
-      totalCents: 3900,
-      paidCents: 0,
-      status: "pending",
-      orderDate: "2026-11-05T01:28:11.250Z",
-      dueDate: null,
-      notes: null,
-      createdAt: "2026-11-05T01:28:11.250Z",
-      updatedAt: "2026-11-05T01:28:11.250Z"
     }
   ],
   orderItems: [
@@ -26060,6 +26077,33 @@ var db_default = {
   ],
   charges: [
     {
+      id: 18,
+      orderId: 65,
+      clientId: 1,
+      templateId: null,
+      message: "Boa tarde, Moises Santos!\nPassando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Resumo do seu pedido:*\n*Vestido Midi Longo Fivela*\n5 pe\xE7as \xD7 R$\xA039,00\n*Valor total:* R$\xA0195,00\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
+      action: "whatsapp_opened",
+      createdAt: "2026-11-05T01:43:19.505Z"
+    },
+    {
+      id: 17,
+      orderId: 57,
+      clientId: 69,
+      templateId: null,
+      message: "Boa tarde, Meury Store!\nPassando pra informar que fechamos a lista desse Macac\xE3o linho e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Resumo do seu pedido:*\n*Macac\xE3o linho*\n3 pe\xE7as \xD7 R$\xA041,00\n*Valor total:* R$\xA0123,00\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
+      action: "manual_sent",
+      createdAt: "2026-11-05T01:29:31.238Z"
+    },
+    {
+      id: 16,
+      orderId: 57,
+      clientId: 69,
+      templateId: null,
+      message: "Boa noite, passando pra informar que fechamos a lista desse Macac\xE3o linho e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Macac\xE3o linho*\nCores variadas\nCom detalhe cinto\n100 pe\xE7as\n\n*Valor:* R$\xA0123,00",
+      action: "manual_sent",
+      createdAt: "2026-11-05T01:27:19.131Z"
+    },
+    {
       id: 15,
       orderId: 57,
       clientId: 69,
@@ -26193,27 +26237,27 @@ var db_default = {
       message: "Oi, Pedro Lucas Novo2! Tudo bem? Passando para lembrar sobre o pagamento do seu pedido no valor de R$\xA090,00. Qualquer d\xFAvida estou \xE0 disposi\xE7\xE3o!",
       action: "whatsapp_opened",
       createdAt: "2026-11-03T10:52:16.507Z"
-    },
-    {
-      id: 16,
-      orderId: 57,
-      clientId: 69,
-      templateId: null,
-      message: "Boa noite, passando pra informar que fechamos a lista desse Macac\xE3o linho e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Macac\xE3o linho*\nCores variadas\nCom detalhe cinto\n100 pe\xE7as\n\n*Valor:* R$\xA0123,00",
-      action: "manual_sent",
-      createdAt: "2026-11-05T01:27:19.131Z"
-    },
-    {
-      id: 17,
-      orderId: 57,
-      clientId: 69,
-      templateId: null,
-      message: "Boa tarde, Meury Store!\nPassando pra informar que fechamos a lista desse Macac\xE3o linho e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Resumo do seu pedido:*\n*Macac\xE3o linho*\n3 pe\xE7as \xD7 R$\xA041,00\n*Valor total:* R$\xA0123,00\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
-      action: "manual_sent",
-      createdAt: "2026-11-05T01:29:31.238Z"
     }
   ],
   auditLogs: [
+    {
+      id: 160,
+      actorUserId: 1,
+      action: "whatsapp_opened",
+      entityType: "message_action",
+      entityId: "29",
+      metadata: '{"kind":"charge","status":"share_started","orderId":65,"destinationType":"client"}',
+      createdAt: "2026-11-05T01:43:19.709Z"
+    },
+    {
+      id: 159,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "18",
+      metadata: '{"orderId":65,"action":"whatsapp_opened"}',
+      createdAt: "2026-11-05T01:43:19.505Z"
+    },
     {
       id: 158,
       actorUserId: 1,
@@ -27095,24 +27139,6 @@ var db_default = {
       entityId: "31",
       metadata: '{"code":"PV-2026-SVCHU8","totalCents":9900,"itemCount":1}',
       createdAt: "2026-11-04T11:32:34.548Z"
-    },
-    {
-      id: 60,
-      actorUserId: 1,
-      action: "create",
-      entityType: "order",
-      entityId: "30",
-      metadata: '{"code":"PV-2026-P2MYPN","totalCents":13200,"itemCount":1}',
-      createdAt: "2026-11-04T11:32:34.003Z"
-    },
-    {
-      id: 59,
-      actorUserId: 1,
-      action: "create",
-      entityType: "order",
-      entityId: "29",
-      metadata: '{"code":"PV-2026-JEYIVH","totalCents":9900,"itemCount":1}',
-      createdAt: "2026-11-04T11:32:33.551Z"
     }
   ]
 };
@@ -28493,7 +28519,8 @@ var defaultTemplates = [
   { name: "Segundo lembrete", body: "Oi, {nome_cliente}! Seu pedido continua com pagamento pendente no valor de {valor_pendente}. Quando puder, me confirme a previs\xE3o de pagamento." },
   { name: "Cobran\xE7a direta", body: "Oi, {nome_cliente}! Seu pedido est\xE1 com pagamento pendente no valor de {valor_pendente}. Consegue realizar o pagamento hoje?" },
   { name: "Confirma\xE7\xE3o de pagamento", body: "Ol\xE1, {nome_cliente}! Recebi seu pagamento de {valor_pago}. Obrigada pela confian\xE7a!" },
-  { name: "Agradecimento", body: "Obrigada pela compra, {nome_cliente}! Qualquer coisa estou \xE0 disposi\xE7\xE3o." }
+  { name: "Agradecimento", body: "Obrigada pela compra, {nome_cliente}! Qualquer coisa estou \xE0 disposi\xE7\xE3o." },
+  { name: "Fechamento de lista com Pix", body: "Boa tarde, {nome_cliente}!\nPassando pra informar que fechamos a lista desse {produto_nome} e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\n{chave_pix}\n\n*Resumo do seu pedido:*\n*{produto_nome}*\n{quantidade} \xD7 {preco_unitario}\n*Valor total:* {valor_total}\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!" }
 ];
 async function listTemplates() {
   const db = await getDb();
@@ -28589,6 +28616,15 @@ async function getReportRows(input) {
     const orderMap = new Map(store.orders.map((o) => [o.id, o]));
     const clientMap = new Map(store.clients.map((c) => [c.id, c]));
     const productMap = new Map(store.products.map((p) => [p.id, p]));
+    const chargedOrderIds = /* @__PURE__ */ new Set();
+    for (const a of store.messageActions) {
+      if (a.kind === "charge" && a.orderId && (a.status === "manual_confirmed" || a.status === "share_started")) {
+        chargedOrderIds.add(Number(a.orderId));
+      }
+    }
+    for (const c of store.charges) {
+      if (c.orderId) chargedOrderIds.add(Number(c.orderId));
+    }
     const rows2 = store.orderItems.filter((i) => {
       if (input.productId && i.productId !== input.productId) return false;
       return orderMap.has(i.orderId) && productMap.has(i.productId);
@@ -28604,7 +28640,46 @@ async function getReportRows(input) {
       if (input.from && row.order.orderDate < /* @__PURE__ */ new Date(`${input.from}T00:00:00`)) return false;
       if (input.to && row.order.orderDate > /* @__PURE__ */ new Date(`${input.to}T23:59:59`)) return false;
       return true;
-    }).map((row) => ({
+    }).map((row) => {
+      const orderStatus = effectiveStatus(row.order);
+      const isPaid = orderStatus === "paid" || row.order.paidCents >= row.order.totalCents && row.order.totalCents > 0;
+      const isCharged = chargedOrderIds.has(row.order.id);
+      return {
+        orderId: row.order.id,
+        clientId: row.client.id,
+        clientName: row.client.name,
+        phone: row.client.phone,
+        productId: row.product.id,
+        productName: row.product.name,
+        unitPriceCents: row.item.unitPriceCents,
+        quantity: row.item.quantity,
+        totalCents: row.item.totalCents,
+        orderDate: row.order.orderDate,
+        status: isPaid ? "paid" : orderStatus,
+        isPaid,
+        isCharged,
+        paidCents: row.order.paidCents
+      };
+    });
+  }
+  const rows = await db.select({ item: orderItems, order: orders, client: clients, product: products }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).innerJoin(products, eq(orderItems.productId, products.id)).where(input.productId ? eq(orderItems.productId, input.productId) : void 0).orderBy(products.id, orders.id, orderItems.id);
+  const chargeActions = await db.select({ orderId: messageActions.orderId }).from(messageActions).where(and(eq(messageActions.kind, "charge"), inArray(messageActions.status, ["manual_confirmed", "share_started"])));
+  const chargesList = await db.select({ orderId: charges.orderId }).from(charges);
+  const dbChargedOrderIds = /* @__PURE__ */ new Set([
+    ...chargeActions.map((a) => Number(a.orderId)),
+    ...chargesList.map((c) => Number(c.orderId))
+  ]);
+  return rows.filter((row) => {
+    if (row.order.status === "cancelled") return false;
+    if (input.orderIds?.length && !input.orderIds.includes(row.order.id)) return false;
+    if (input.from && row.order.orderDate < /* @__PURE__ */ new Date(`${input.from}T00:00:00`)) return false;
+    if (input.to && row.order.orderDate > /* @__PURE__ */ new Date(`${input.to}T23:59:59`)) return false;
+    return true;
+  }).map((row) => {
+    const orderStatus = effectiveStatus(row.order);
+    const isPaid = orderStatus === "paid" || row.order.paidCents >= row.order.totalCents && row.order.totalCents > 0;
+    const isCharged = dbChargedOrderIds.has(row.order.id);
+    return {
       orderId: row.order.id,
       clientId: row.client.id,
       clientName: row.client.name,
@@ -28614,28 +28689,13 @@ async function getReportRows(input) {
       unitPriceCents: row.item.unitPriceCents,
       quantity: row.item.quantity,
       totalCents: row.item.totalCents,
-      orderDate: row.order.orderDate
-    }));
-  }
-  const rows = await db.select({ item: orderItems, order: orders, client: clients, product: products }).from(orderItems).innerJoin(orders, eq(orderItems.orderId, orders.id)).innerJoin(clients, eq(orders.clientId, clients.id)).innerJoin(products, eq(orderItems.productId, products.id)).where(input.productId ? eq(orderItems.productId, input.productId) : void 0).orderBy(products.id, orders.id, orderItems.id);
-  return rows.filter((row) => {
-    if (row.order.status === "cancelled") return false;
-    if (input.orderIds?.length && !input.orderIds.includes(row.order.id)) return false;
-    if (input.from && row.order.orderDate < /* @__PURE__ */ new Date(`${input.from}T00:00:00`)) return false;
-    if (input.to && row.order.orderDate > /* @__PURE__ */ new Date(`${input.to}T23:59:59`)) return false;
-    return true;
-  }).map((row) => ({
-    orderId: row.order.id,
-    clientId: row.client.id,
-    clientName: row.client.name,
-    phone: row.client.phone,
-    productId: row.product.id,
-    productName: row.product.name,
-    unitPriceCents: row.item.unitPriceCents,
-    quantity: row.item.quantity,
-    totalCents: row.item.totalCents,
-    orderDate: row.order.orderDate
-  }));
+      orderDate: row.order.orderDate,
+      status: isPaid ? "paid" : orderStatus,
+      isPaid,
+      isCharged,
+      paidCents: row.order.paidCents
+    };
+  });
 }
 async function getAuditLogs() {
   const db = await getDb();
