@@ -1,3 +1,4 @@
+import { toWaPhone } from "@shared/messaging";
 import { toast } from "sonner";
 import { formatDate, formatMoney } from "@shared/format";
 
@@ -204,15 +205,19 @@ export async function shareReportOnWhatsApp(
     }
   }
 
-  const digits = (options.phone || "").replace(/\D/g, "");
+  const cleanPhone = options.phone ? toWaPhone(options.phone) : "";
+
+  // SE FOR COBRANÇA INDIVIDUAL (tem telefone de cliente cadastrado):
+  // Abre DIRETO na conversa com a cliente no WhatsApp
+  if (cleanPhone) {
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, "_blank", "noopener,noreferrer");
+    return true;
+  }
+
   let waUrl = options.targetUrl;
   if (!waUrl) {
-    if (digits.length >= 8) {
-      const formatted = digits.length <= 11 && !digits.startsWith("55") ? `55${digits}` : digits;
-      waUrl = `https://wa.me/${formatted}?text=${encodeURIComponent(text)}`;
-    } else {
-      waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    }
+    waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
   }
 
   window.open(waUrl, "_blank", "noopener,noreferrer");

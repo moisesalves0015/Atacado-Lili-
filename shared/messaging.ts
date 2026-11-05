@@ -108,6 +108,7 @@ export type GroupUpdateOptions = {
   showTotals: boolean;
   showProgress: boolean;
   showPaymentStatus?: boolean;
+  showDescription?: boolean;
   includePix?: boolean;
   intro: string;
   closing: string;
@@ -119,7 +120,8 @@ export const defaultGroupUpdateOptions: GroupUpdateOptions = {
   showPhones: false,
   showTotals: true,
   showProgress: true,
-  showPaymentStatus: false,
+  showPaymentStatus: true,
+  showDescription: true,
   includePix: false,
   intro: "Atualização da lista",
   closing: "",
@@ -137,6 +139,7 @@ export function progressLine(progress: LotProgress) {
  */
 export function buildGroupUpdateText(input: {
   productName: string;
+  productDescription?: string | null;
   rows: ReportRow[];
   goalPieces?: number | null;
   options?: Partial<GroupUpdateOptions>;
@@ -145,6 +148,10 @@ export function buildGroupUpdateText(input: {
   const totals = reportTotals(input.rows);
   const parts: string[] = [];
   if (options.intro.trim()) parts.push(options.intro.trim());
+
+  if (options.showDescription !== false && input.productDescription?.trim()) {
+    parts.push(`📝 *Detalhes do produto:*\n${input.productDescription.trim()}`);
+  }
 
   if (!input.rows.length) {
     parts.push(`${input.productName}\n\nAinda sem quantidades registradas.`);

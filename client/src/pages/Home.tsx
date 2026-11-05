@@ -865,21 +865,12 @@ function QuickSaleHomeView({
         <div className="quick-home-icons">
           <button
             type="button"
-            className="mini-pill-btn"
+            className="mini-icon-btn"
             onClick={onOpenMessages}
             title="Central de mensagens e cobrança"
             aria-label="Central de mensagens"
-            style={{
-              background: "#0f5b63",
-              color: "#ffffff",
-              padding: "6px 14px",
-              fontWeight: 600,
-              fontSize: "13px",
-              borderRadius: "999px",
-            }}
           >
-            <MessageCircle size={15} />
-            <span>Mensagens e Cobrança</span>
+            <MessageCircle size={16} />
             {dueReminders.length > 0 && <em>{dueReminders.length}</em>}
           </button>
           <button type="button" className="mini-icon-btn" onClick={onAddProduct} title="Novo produto">
@@ -1134,28 +1125,7 @@ function QuickSaleHomeView({
                 ? `Finalizar (${selectedClients.length} clientes)`
                 : "Finalizar (1 cliente)"}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="default"
-              onClick={onOpenMessages}
-              style={{
-                width: "100%",
-                borderColor: "#0f5b63",
-                color: "#0f5b63",
-                fontWeight: 600,
-                background: "#f0fdf9",
-                height: "44px",
-                borderRadius: "10px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-              }}
-            >
-              <MessageCircle size={17} />
-              <span>Ver Mensagens e Cobranças</span>
-            </Button>
+
           </div>
         </aside>
       </div>

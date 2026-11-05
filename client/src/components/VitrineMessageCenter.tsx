@@ -279,6 +279,7 @@ function VitrineGroupUpdateFlow({
     if (!selectedProduct) return "";
     return buildGroupUpdateText({
       productName: selectedProduct.name,
+      productDescription: selectedProduct.description,
       rows,
       goalPieces,
       options,
@@ -466,6 +467,15 @@ function VitrineGroupUpdateFlow({
         {showConfig && (
           <div className="vmc-accordion-body">
             <div className="vmc-options-grid">
+              <label className="vmc-chk-label">
+                <input
+                  type="checkbox"
+                  checked={options.showDescription !== false}
+                  onChange={e => setOptions({ ...options, showDescription: e.target.checked })}
+                />
+                <span>Exibir descrição do produto</span>
+              </label>
+
               <label className="vmc-chk-label">
                 <input
                   type="checkbox"
