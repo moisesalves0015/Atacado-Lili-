@@ -9,12 +9,26 @@ function randomPhone(prefix = "99") {
 }
 
 describe("Importação e desduplicação de clientes", () => {
+  let initialClientsCount = 0;
+
+  beforeEach(() => {
+    const store = getStore();
+    initialClientsCount = store.clients.length;
+  });
+
+  afterEach(() => {
+    const store = getStore();
+    if (store.clients.length > initialClientsCount) {
+      store.clients = store.clients.slice(0, initialClientsCount);
+    }
+  });
+
   it("desduplica contatos pelo telefone normalizado (com DDI e DDD variantes)", async () => {
     const testActorId = 999;
     const basePhone = randomPhone("91");
     const digitsOnly = basePhone.replace(/\D/g, ""); // ex: 6591123456
     const with55 = `+55 ${basePhone}`;
-    const uniqueClientName = `Mariana Teste ${Date.now()}`;
+    const uniqueClientName = `Cliente Simulado ${Date.now()}`;
 
     // 1. Cria cliente inicial com telefone formatado
     const client1 = await createClient(testActorId, {
@@ -91,18 +105,18 @@ describe("Importação e desduplicação de clientes", () => {
     const store = getStore();
     const testActorId = 777;
 
-    const secretCustomerName = `Segredo Absoluto PII ${Date.now()}`;
-    const secretCustomerPhone = randomPhone("95");
+    const testCustomerName = `Cliente Teste Privacidade ${Date.now()}`;
+    const testCustomerPhone = randomPhone("95");
 
     await createClient(testActorId, {
-      name: secretCustomerName,
-      phone: secretCustomerPhone,
+      name: testCustomerName,
+      phone: testCustomerPhone,
     });
 
-    const otherSecretPhone = randomPhone("96");
+    const otherTestPhone = randomPhone("96");
     await importClients(
       testActorId,
-      [{ name: secretCustomerName + " 2", phone: otherSecretPhone }],
+      [{ name: testCustomerName + " 2", phone: otherTestPhone }],
       "device_contact"
     );
 
@@ -111,9 +125,9 @@ describe("Importação e desduplicação de clientes", () => {
     for (const entry of recentAudits) {
       if (entry.metadata) {
         // NENHUM nome ou telefone de cliente deve estar contido nos logs de auditoria
-        expect(entry.metadata).not.toContain(secretCustomerName);
-        expect(entry.metadata).not.toContain(secretCustomerPhone);
-        expect(entry.metadata).not.toContain(otherSecretPhone);
+        expect(entry.metadata).not.toContain(testCustomerName);
+        expect(entry.metadata).not.toContain(testCustomerPhone);
+        expect(entry.metadata).not.toContain(otherTestPhone);
       }
     }
   });
