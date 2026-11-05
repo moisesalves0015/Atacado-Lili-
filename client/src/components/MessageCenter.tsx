@@ -314,6 +314,8 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
             )}
             <p className="mc-note">Pedido registrado é a quantidade atribuída à cliente — não significa que o lote já foi pedido ao fornecedor.</p>
             <div className="mc-checks">
+              <Check2 checked={options.showPaymentStatus ?? true} onChange={value => set({ showPaymentStatus: value })}>Exibir status de pagamento (✅ Pago, 📲 Cobrado)</Check2>
+              <Check2 checked={options.includePix ?? false} onChange={value => set({ includePix: value })}>Incluir Chave Pix no final</Check2>
               <Check2 checked={options.showNames} onChange={value => set({ showNames: value })}>Mostrar nomes e quantidades</Check2>
               <Check2 checked={options.showPrices} onChange={value => set({ showPrices: value })}>Mostrar preço</Check2>
               <Check2 checked={options.showPhones} onChange={value => set({ showPhones: value })}>Mostrar telefones (evite em grupo público)</Check2>
@@ -345,7 +347,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
             <div className="mc-actions">
               <Button variant="outline" size="sm" onClick={() => act("draft")} disabled={!text}>Salvar rascunho</Button>
               <Button variant="outline" size="sm" onClick={() => { copyTextSync(text); toast.success("Texto copiado"); void act("ready"); }} disabled={!text}><Copy size={14} /> Copiar</Button>
-              <Button size="sm" onClick={share} disabled={!text}><MessageCircle size={14} /> {product.imageUrl ? "Compartilhar (foto + legenda)" : "Compartilhar no WhatsApp"}</Button>
+              <Button size="sm" onClick={share} disabled={!text}><MessageCircle size={14} /> "WhatsApp"</Button>
               {destination?.inviteUrl && <Button variant="outline" size="sm" onClick={() => window.open(destination.inviteUrl, "_blank", "noopener,noreferrer")}><ExternalLink size={14} /> Abrir grupo</Button>}
             </div>
             <div className="mc-confirm">
@@ -385,7 +387,7 @@ function ChargesTab({ orders, loading, templates, record, refetchOrders }: { ord
       const { [order.id]: _removed, ...rest } = current;
       return rest;
     }
-    return { ...current, [order.id]: { templateId: templates[0]?.id ?? 0, override: null, snapshot: openBalanceCents(order), key: newKey(`charge-${order.id}`), status: null } };
+    return { ...current, [order.id]: { templateId: templates.find((t: any) => t.name?.includes("Pix") || t.body?.includes("Pix"))?.id ?? templates[0]?.id ?? 0, override: null, snapshot: openBalanceCents(order), key: newKey(`charge-${order.id}`), status: order.isCharged ? "manual_confirmed" : null } };
   });
   const patchCard = (id: number, patch: Partial<ChargeCardState>) => setCards(current => (current[id] ? { ...current, [id]: { ...current[id], ...patch } } : current));
 
@@ -435,7 +437,8 @@ function ChargesTab({ orders, loading, templates, record, refetchOrders }: { ord
 }
 
 function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, onRemove }: { order: any; card: ChargeCardState; templates: any[]; record: Recorder; refetchOrders: () => Promise<{ data?: unknown }>; onPatch: (patch: Partial<ChargeCardState>) => void; onRemove: () => void }) {
-  const template = templates.find(item => item.id === card.templateId) ?? templates[0];
+  const pixTemplate = templates.find((t: any) => t.name?.includes("Pix") || t.body?.includes("Pix")) ?? templates[0];
+  const template = templates.find(item => item.id === card.templateId) ?? pixTemplate ?? templates[0];
   const balance = openBalanceCents(order);
   const generated = template ? fillChargeTemplate(template.body, order) : "";
   const text = card.override ? card.override.text : generated;
@@ -444,6 +447,10 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
   const closed = order.status === "cancelled" || balance === 0;
   const blocked = balanceChanged || closed;
 
+  const createPayment = trpc.payments.create.useMutation();
+  const cancelOrder = trpc.orders.cancel.useMutation();
+  const utils = trpc.useUtils();
+
   const act = async (status: Exclude<ActionStatus, "api_confirmed">) => {
     const result = await record({ idempotencyKey: card.key, kind: "charge", status, destinationType: "client", clientId: order.clientId ?? order.client.id, orderId: order.id, title: `Cobrança ${order.code} — ${order.client.name}`.slice(0, 200), message: text.slice(0, 2000), expectedBalanceCents: card.snapshot });
     if (result) onPatch({ status: result });
@@ -451,7 +458,6 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
   };
 
   const openWhatsApp = async () => {
-    // A aba é aberta no clique (evita bloqueio de pop-up) e só navega depois da checagem do saldo.
     const popup = window.open("about:blank", "_blank");
     const fresh = (((await refetchOrders()).data ?? []) as ChargeOrder[]);
     const changes = detectBalanceChanges({ [order.id]: card.snapshot }, fresh);
@@ -468,7 +474,7 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
     popup.opener = null;
     popup.location.href = waChatUrl(order.client.phone, text);
     const result = await act("share_started");
-    if (result) toast.info("WhatsApp aberto. Envie a mensagem e depois confirme aqui.");
+    if (result) toast.info("WhatsApp aberto!");
   };
 
   return (
@@ -486,11 +492,72 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
         </select>
       </Field>
       <textarea className="mc-preview small" value={text} onChange={event => onPatch({ override: { text: event.target.value, base: generated } })} aria-label={`Mensagem para ${order.client.name}`} />
-      <div className="mc-actions">
-        <Button size="sm" variant="outline" disabled={blocked || !text} onClick={() => { copyTextSync(text); toast.success("Mensagem copiada"); void act("ready"); }}><Copy size={14} /> Copiar</Button>
-        <Button size="sm" disabled={blocked || !text} onClick={openWhatsApp}><MessageCircle size={14} /> Abrir WhatsApp</Button>
-        <Button size="sm" variant="outline" disabled={card.status === "manual_confirmed" || !text || closed} onClick={() => act("manual_confirmed")}><Check size={14} /> {card.status === "manual_confirmed" ? "Envio confirmado" : "Confirmei o envio"}</Button>
-        {card.status === "manual_confirmed" && <Button size="sm" variant="ghost" onClick={() => onPatch({ key: newKey(`charge-${order.id}`), status: null, override: null, snapshot: balance })}>Nova mensagem</Button>}
+      <div className="vmc-card-actions" style={{ marginTop: "10px" }}>
+        <button
+          type="button"
+          className="vmc-action-btn copy"
+          disabled={blocked || !text}
+          onClick={() => { copyTextSync(text); toast.success("Mensagem copiada"); void act("ready"); }}
+        >
+          <Copy size={14} /> Copiar
+        </button>
+        <button
+          type="button"
+          className="vmc-action-btn share"
+          disabled={blocked || !text}
+          onClick={openWhatsApp}
+        >
+          <MessageCircle size={14} /> WhatsApp
+        </button>
+        <button
+          type="button"
+          className={`vmc-action-btn charged ${order.isCharged || card.status === "manual_confirmed" ? "is-active" : ""}`}
+          disabled={closed}
+          onClick={async () => {
+            const ok = await act("manual_confirmed");
+            if (ok) {
+              order.isCharged = true;
+              void utils.orders.list.invalidate();
+              void utils.reports.rows.invalidate();
+              toast.success(`Cobrança de ${order.client.name} marcada como enviada!`);
+            }
+          }}
+        >
+          <Check size={14} /> Cobrado
+        </button>
+        <button
+          type="button"
+          className={`vmc-action-btn paid ${order.status === "paid" || order.isPaid ? "is-active" : ""}`}
+          disabled={order.status === "paid" || order.isPaid || closed}
+          onClick={async () => {
+            if (!window.confirm(`Deseja marcar o pedido ${order.code} de ${order.client.name} como PAGO (${formatMoney(balance)})?`)) return;
+            await createPayment.mutateAsync({ orderId: order.id, amountCents: balance, method: "PIX", notes: "Baixa manual" });
+            await act("manual_confirmed");
+            void refetchOrders();
+            void utils.orders.list.invalidate();
+            void utils.reports.rows.invalidate();
+            void utils.dashboard.summary.invalidate();
+            toast.success(`Pedido de ${order.client.name} quitado com sucesso!`);
+          }}
+        >
+          <Check size={14} /> Pago
+        </button>
+        <button
+          type="button"
+          className="vmc-action-btn cancel"
+          disabled={order.status === "cancelled"}
+          onClick={async () => {
+            if (!window.confirm(`Deseja realmente CANCELAR o pedido ${order.code} de ${order.client.name}?`)) return;
+            await cancelOrder.mutateAsync({ id: order.id });
+            void refetchOrders();
+            void utils.orders.list.invalidate();
+            void utils.reports.rows.invalidate();
+            void utils.dashboard.summary.invalidate();
+            toast.success(`Pedido de ${order.client.name} cancelado.`);
+          }}
+        >
+          <X size={14} /> Cancelar
+        </button>
       </div>
     </article>
   );
@@ -571,7 +638,7 @@ function ReportTab({ products, destinations, record }: { products: any[]; destin
             <textarea className="mc-preview" value={text} onChange={event => setOverride({ text: event.target.value, base: generated })} aria-label="Texto do relatório" />
             <div className="mc-actions">
               <Button size="sm" variant="outline" onClick={() => { copyTextSync(text); toast.success("Relatório copiado"); void act("ready"); }}><Copy size={14} /> Copiar</Button>
-              <Button size="sm" onClick={share}><MessageCircle size={14} /> {photoProduct?.imageUrl ? "Compartilhar (foto + legenda)" : "Compartilhar no WhatsApp"}</Button>
+              <Button size="sm" onClick={share}><MessageCircle size={14} /> "WhatsApp"</Button>
               <Button size="sm" variant="outline" onClick={() => downloadText("relatorio-venda-atacado.txt", text)}><Download size={14} /> TXT</Button>
               <Button size="sm" variant="outline" onClick={() => downloadText("relatorio-venda-atacado.csv", csvFromRows(includePhones ? rows : rows.map(row => ({ ...row, phone: "" }))), "text/csv;charset=utf-8")}><Download size={14} /> Excel (CSV)</Button>
             </div>

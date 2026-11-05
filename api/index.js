@@ -323,7 +323,7 @@ import path from "node:path";
 
 // data/db.json
 var db_default = {
-  updatedAt: 1793837420696,
+  updatedAt: 1793838502352,
   counters: {
     products: 14,
     clients: 2351,
@@ -331,13 +331,13 @@ var db_default = {
     orderItems: 66,
     payments: 3,
     chargeTemplates: 7,
-    charges: 12,
-    auditLogs: 144,
+    charges: 13,
+    auditLogs: 146,
     messageDestinations: 1,
     messageLots: 0,
     messageReminders: 0,
     reminderEvents: 0,
-    messageActions: 22
+    messageActions: 23
   },
   messageDestinations: [
     {
@@ -728,6 +728,23 @@ var db_default = {
       statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T00:10:19.782Z"}]',
       createdAt: "2026-11-05T00:10:19.782Z",
       updatedAt: "2026-11-05T00:10:19.782Z"
+    },
+    {
+      id: 23,
+      kind: "charge",
+      status: "manual_confirmed",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 1,
+      orderId: 65,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-XNPRBI \u2014 Moises Santos",
+      message: "Boa noite, passando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Vestido Midi Longo Fivela*\n\u{1F33F} Modelo: VESTIDO\n\u2728 Detalhes: FORRADO, POSSUI BOJO\n \u{1F505}TECIDO : DUNALINHO\n\u{1F4CF} Tamanhos: UNICO\n\n*Valor:* R$\xA0195,00",
+      idempotencyKey: "vcharge-65:07f042f1-eba2-4418-b4c4-39642234a7a8",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T00:28:21.674Z"}]',
+      createdAt: "2026-11-05T00:28:21.674Z",
+      updatedAt: "2026-11-05T00:28:21.674Z"
     }
   ],
   products: [
@@ -25907,7 +25924,7 @@ var db_default = {
     {
       id: 7,
       name: "Fechamento de lista com Pix",
-      body: "{saudacao}, {nome_cliente}!\nPassando pra informar que fechamos a lista desse {produto_nome} e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\n{chave_pix}\n\n*Resumo do seu pedido:*\n*{produto_nome}*\n{quantidade} \xD7 {preco_unitario}\n*Valor total:* {valor_total}\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
+      body: "{saudacao}, passando pra informar que fechamos a lista desse {produto_nome} e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\n{chave_pix}\n\n*{produto_nome}*\n{detalhes_produto}\n\n*Valor:* {valor_pendente}",
       createdAt: "2026-11-04T23:31:00.265Z",
       updatedAt: "2026-11-04T23:31:00.267Z"
     }
@@ -26020,9 +26037,36 @@ var db_default = {
       message: "Boa noite, passando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Vestido Midi Longo Fivela*\n\u{1F33F} Modelo: VESTIDO\n\u2728 Detalhes: FORRADO, POSSUI BOJO\n \u{1F505}TECIDO : DUNALINHO\n\u{1F4CF} Tamanhos: UNICO\n\n*Valor:* R$\xA0195,00",
       action: "manual_sent",
       createdAt: "2026-11-05T00:10:19.782Z"
+    },
+    {
+      id: 13,
+      orderId: 65,
+      clientId: 1,
+      templateId: null,
+      message: "Boa noite, passando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Vestido Midi Longo Fivela*\n\u{1F33F} Modelo: VESTIDO\n\u2728 Detalhes: FORRADO, POSSUI BOJO\n \u{1F505}TECIDO : DUNALINHO\n\u{1F4CF} Tamanhos: UNICO\n\n*Valor:* R$\xA0195,00",
+      action: "manual_sent",
+      createdAt: "2026-11-05T00:28:21.675Z"
     }
   ],
   auditLogs: [
+    {
+      id: 146,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "23",
+      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":65,"destinationType":"client"}',
+      createdAt: "2026-11-05T00:28:22.352Z"
+    },
+    {
+      id: 145,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "13",
+      metadata: '{"orderId":65,"action":"manual_sent"}',
+      createdAt: "2026-11-05T00:28:21.676Z"
+    },
     {
       id: 144,
       actorUserId: 1,
@@ -26904,24 +26948,6 @@ var db_default = {
       entityId: "3",
       metadata: '{"kind":"charge","status":"manual_confirmed","orderId":5,"destinationType":"client"}',
       createdAt: "2026-11-04T03:53:13.633Z"
-    },
-    {
-      id: 46,
-      actorUserId: 1,
-      action: "create",
-      entityType: "charge",
-      entityId: "3",
-      metadata: '{"orderId":5,"action":"manual_sent"}',
-      createdAt: "2026-11-04T03:53:13.482Z"
-    },
-    {
-      id: 45,
-      actorUserId: 1,
-      action: "manual_confirm",
-      entityType: "message_action",
-      entityId: "2",
-      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":5,"destinationType":"client"}',
-      createdAt: "2026-11-04T03:53:01.696Z"
     }
   ]
 };
