@@ -323,21 +323,21 @@ import path from "node:path";
 
 // data/db.json
 var db_default = {
-  updatedAt: 1793839350010,
+  updatedAt: 1793842171871,
   counters: {
     products: 14,
     clients: 2351,
-    orders: 66,
-    orderItems: 67,
+    orders: 67,
+    orderItems: 68,
     payments: 3,
     chargeTemplates: 7,
-    charges: 13,
-    auditLogs: 147,
+    charges: 17,
+    auditLogs: 158,
     messageDestinations: 1,
     messageLots: 0,
     messageReminders: 0,
     reminderEvents: 0,
-    messageActions: 23
+    messageActions: 28
   },
   messageDestinations: [
     {
@@ -745,6 +745,91 @@ var db_default = {
       statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T00:28:21.674Z"}]',
       createdAt: "2026-11-05T00:28:21.674Z",
       updatedAt: "2026-11-05T00:28:21.674Z"
+    },
+    {
+      id: 24,
+      kind: "charge",
+      status: "share_started",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 1,
+      orderId: 65,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-XNPRBI \u2014 Moises Santos",
+      message: "Boa noite, passando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Vestido Midi Longo Fivela*\n\u{1F33F} Modelo: VESTIDO\n\u2728 Detalhes: FORRADO, POSSUI BOJO\n \u{1F505}TECIDO : DUNALINHO\n\u{1F4CF} Tamanhos: UNICO\n\n*Valor:* R$\xA0195,00",
+      idempotencyKey: "vcharge-65:7ad3564b-9678-4d4d-bcac-64382d957cc0",
+      statusLog: '[{"status":"share_started","at":"2026-11-05T01:10:51.978Z"}]',
+      createdAt: "2026-11-05T01:10:51.978Z",
+      updatedAt: "2026-11-05T01:10:51.978Z"
+    },
+    {
+      id: 25,
+      kind: "group_update",
+      status: "share_started",
+      destinationType: "none",
+      destinationId: null,
+      clientId: null,
+      orderId: null,
+      productId: 10,
+      reminderId: null,
+      title: "Atualiza\xE7\xE3o \u2014 Macaquinho Duna",
+      message: "Atualiza\xE7\xE3o da lista\n\nMacaquinho Duna R$\xA030,00\n\nGra\xE7a Barbosa \u2013 3\n+5566992507016\n\nSilvia Viegas \u2013 3\n+5561993367585\n\nMarisi Duarte \u2013 3\n+5518996529555\n\nSara carvalho \u2013 4\n+5513997423138\n\nD\xE9bora biagiolli \u2013 3\n+5516997571303\n\nSandielly \u2013 3\n+5591986151469\n\nMosailla Pereira \u2013 3\n+5513997619475\n\nTotal de pe\xE7as: 22\nTotal de clientes: 7",
+      idempotencyKey: "vupdate:8e293ec1-4d2c-4bec-83f4-eb8350a29c60",
+      statusLog: '[{"status":"share_started","at":"2026-11-05T01:11:29.236Z"}]',
+      createdAt: "2026-11-05T01:11:29.236Z",
+      updatedAt: "2026-11-05T01:11:29.236Z"
+    },
+    {
+      id: 26,
+      kind: "charge",
+      status: "manual_confirmed",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 69,
+      orderId: 57,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-NXXA90 \u2014 Meury Store",
+      message: "Boa noite, passando pra informar que fechamos a lista desse Macac\xE3o linho e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Macac\xE3o linho*\nCores variadas\nCom detalhe cinto\n100 pe\xE7as\n\n*Valor:* R$\xA0123,00",
+      idempotencyKey: "vcharge-57:daaca2e2-47e5-4099-a340-d467bf9a9109",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T01:25:53.323Z"}]',
+      createdAt: "2026-11-05T01:25:53.323Z",
+      updatedAt: "2026-11-05T01:25:53.323Z"
+    },
+    {
+      id: 27,
+      kind: "charge",
+      status: "manual_confirmed",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 69,
+      orderId: 57,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-NXXA90 \u2014 Meury Store",
+      message: "Boa noite, passando pra informar que fechamos a lista desse Macac\xE3o linho e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Macac\xE3o linho*\nCores variadas\nCom detalhe cinto\n100 pe\xE7as\n\n*Valor:* R$\xA0123,00",
+      idempotencyKey: "vcharge-57:2c67e7d2-0191-4ac9-b602-1c31a9b79d5d",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T01:27:19.130Z"}]',
+      createdAt: "2026-11-05T01:27:19.130Z",
+      updatedAt: "2026-11-05T01:27:19.130Z"
+    },
+    {
+      id: 28,
+      kind: "charge",
+      status: "manual_confirmed",
+      destinationType: "client",
+      destinationId: null,
+      clientId: 69,
+      orderId: 57,
+      productId: null,
+      reminderId: null,
+      title: "Cobran\xE7a PV-2026-NXXA90 \u2014 Meury Store",
+      message: "Boa tarde, Meury Store!\nPassando pra informar que fechamos a lista desse Macac\xE3o linho e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Resumo do seu pedido:*\n*Macac\xE3o linho*\n3 pe\xE7as \xD7 R$\xA041,00\n*Valor total:* R$\xA0123,00\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
+      idempotencyKey: "vcharge-57:b42b6c8c-e448-4af1-8d02-144ff41bfebd",
+      statusLog: '[{"status":"manual_confirmed","at":"2026-11-05T01:29:31.237Z"}]',
+      createdAt: "2026-11-05T01:29:31.237Z",
+      updatedAt: "2026-11-05T01:29:31.237Z"
     }
   ],
   products: [
@@ -25273,6 +25358,19 @@ var db_default = {
       notes: null,
       createdAt: "2026-11-02T17:12:41.734Z",
       updatedAt: "2026-11-02T17:12:41.734Z"
+    },
+    {
+      id: 67,
+      code: "PV-2026-M-BM-U",
+      clientId: 2351,
+      totalCents: 3900,
+      paidCents: 0,
+      status: "pending",
+      orderDate: "2026-11-05T01:28:11.250Z",
+      dueDate: null,
+      notes: null,
+      createdAt: "2026-11-05T01:28:11.250Z",
+      updatedAt: "2026-11-05T01:28:11.250Z"
     }
   ],
   orderItems: [
@@ -25869,6 +25967,15 @@ var db_default = {
       unitPriceCents: 3900,
       totalCents: 11700,
       createdAt: "2026-11-05T00:42:29.979Z"
+    },
+    {
+      id: 68,
+      orderId: 67,
+      productId: 13,
+      quantity: 1,
+      unitPriceCents: 3900,
+      totalCents: 3900,
+      createdAt: "2026-11-05T01:28:11.250Z"
     }
   ],
   payments: [
@@ -25948,10 +26055,28 @@ var db_default = {
       name: "Fechamento de lista com Pix",
       body: "Boa tarde, {nome_cliente}!\nPassando pra informar que fechamos a lista desse {produto_nome} e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\n{chave_pix}\n\n*Resumo do seu pedido:*\n*{produto_nome}*\n{quantidade} \xD7 {preco_unitario}\n*Valor total:* {valor_total}\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
       createdAt: "2026-11-04T23:31:00.265Z",
-      updatedAt: "2026-11-04T23:31:00.267Z"
+      updatedAt: "2026-11-05T01:28:58.996Z"
     }
   ],
   charges: [
+    {
+      id: 15,
+      orderId: 57,
+      clientId: 69,
+      templateId: null,
+      message: "Boa noite, passando pra informar que fechamos a lista desse Macac\xE3o linho e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Macac\xE3o linho*\nCores variadas\nCom detalhe cinto\n100 pe\xE7as\n\n*Valor:* R$\xA0123,00",
+      action: "manual_sent",
+      createdAt: "2026-11-05T01:25:53.325Z"
+    },
+    {
+      id: 14,
+      orderId: 65,
+      clientId: 1,
+      templateId: null,
+      message: "Boa noite, passando pra informar que fechamos a lista desse Vestido Midi Longo Fivela e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Vestido Midi Longo Fivela*\n\u{1F33F} Modelo: VESTIDO\n\u2728 Detalhes: FORRADO, POSSUI BOJO\n \u{1F505}TECIDO : DUNALINHO\n\u{1F4CF} Tamanhos: UNICO\n\n*Valor:* R$\xA0195,00",
+      action: "whatsapp_opened",
+      createdAt: "2026-11-05T01:10:51.979Z"
+    },
     {
       id: 13,
       orderId: 65,
@@ -26068,9 +26193,126 @@ var db_default = {
       message: "Oi, Pedro Lucas Novo2! Tudo bem? Passando para lembrar sobre o pagamento do seu pedido no valor de R$\xA090,00. Qualquer d\xFAvida estou \xE0 disposi\xE7\xE3o!",
       action: "whatsapp_opened",
       createdAt: "2026-11-03T10:52:16.507Z"
+    },
+    {
+      id: 16,
+      orderId: 57,
+      clientId: 69,
+      templateId: null,
+      message: "Boa noite, passando pra informar que fechamos a lista desse Macac\xE3o linho e preciso do pagamento.\n\nChave Pix \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Macac\xE3o linho*\nCores variadas\nCom detalhe cinto\n100 pe\xE7as\n\n*Valor:* R$\xA0123,00",
+      action: "manual_sent",
+      createdAt: "2026-11-05T01:27:19.131Z"
+    },
+    {
+      id: 17,
+      orderId: 57,
+      clientId: 69,
+      templateId: null,
+      message: "Boa tarde, Meury Store!\nPassando pra informar que fechamos a lista desse Macac\xE3o linho e j\xE1 vamos enviar o pedido grande ao fornecedor.\n\n*Chave Pix* \u{1F447}\u{1F3FB}\nKriciaquaresma@gmail.com\n\n*Resumo do seu pedido:*\n*Macac\xE3o linho*\n3 pe\xE7as \xD7 R$\xA041,00\n*Valor total:* R$\xA0123,00\n\n\u26A0\uFE0F *Importante:* Para garantir suas pe\xE7as no lote, realize o pagamento e *envie o comprovante aqui assim que fizer o Pix*. Obrigada!",
+      action: "manual_sent",
+      createdAt: "2026-11-05T01:29:31.238Z"
     }
   ],
   auditLogs: [
+    {
+      id: 158,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "28",
+      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":57,"destinationType":"client"}',
+      createdAt: "2026-11-05T01:29:31.871Z"
+    },
+    {
+      id: 157,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "17",
+      metadata: '{"orderId":57,"action":"manual_sent"}',
+      createdAt: "2026-11-05T01:29:31.238Z"
+    },
+    {
+      id: 156,
+      actorUserId: 1,
+      action: "update",
+      entityType: "charge_template",
+      entityId: "7",
+      metadata: null,
+      createdAt: "2026-11-05T01:28:58.996Z"
+    },
+    {
+      id: 155,
+      actorUserId: 1,
+      action: "create",
+      entityType: "order",
+      entityId: "67",
+      metadata: '{"code":"PV-2026-M-BM-U","totalCents":3900,"itemCount":1}',
+      createdAt: "2026-11-05T01:28:11.250Z"
+    },
+    {
+      id: 154,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "27",
+      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":57,"destinationType":"client"}',
+      createdAt: "2026-11-05T01:27:20.123Z"
+    },
+    {
+      id: 153,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "16",
+      metadata: '{"orderId":57,"action":"manual_sent"}',
+      createdAt: "2026-11-05T01:27:19.131Z"
+    },
+    {
+      id: 152,
+      actorUserId: 1,
+      action: "manual_confirm",
+      entityType: "message_action",
+      entityId: "26",
+      metadata: '{"kind":"charge","status":"manual_confirmed","orderId":57,"destinationType":"client"}',
+      createdAt: "2026-11-05T01:25:53.989Z"
+    },
+    {
+      id: 151,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "15",
+      metadata: '{"orderId":57,"action":"manual_sent"}',
+      createdAt: "2026-11-05T01:25:53.325Z"
+    },
+    {
+      id: 150,
+      actorUserId: 1,
+      action: "whatsapp_opened",
+      entityType: "message_action",
+      entityId: "25",
+      metadata: '{"kind":"group_update","status":"share_started","orderId":null,"destinationType":"none"}',
+      createdAt: "2026-11-05T01:11:29.236Z"
+    },
+    {
+      id: 149,
+      actorUserId: 1,
+      action: "whatsapp_opened",
+      entityType: "message_action",
+      entityId: "24",
+      metadata: '{"kind":"charge","status":"share_started","orderId":65,"destinationType":"client"}',
+      createdAt: "2026-11-05T01:10:52.187Z"
+    },
+    {
+      id: 148,
+      actorUserId: 1,
+      action: "create",
+      entityType: "charge",
+      entityId: "14",
+      metadata: '{"orderId":65,"action":"whatsapp_opened"}',
+      createdAt: "2026-11-05T01:10:51.979Z"
+    },
     {
       id: 147,
       actorUserId: 1,
@@ -26871,105 +27113,6 @@ var db_default = {
       entityId: "29",
       metadata: '{"code":"PV-2026-JEYIVH","totalCents":9900,"itemCount":1}',
       createdAt: "2026-11-04T11:32:33.551Z"
-    },
-    {
-      id: 58,
-      actorUserId: 1,
-      action: "create",
-      entityType: "product",
-      entityId: "11",
-      metadata: '{"name":"Vestido  Sensorial Marrant"}',
-      createdAt: "2026-11-04T11:31:04.128Z"
-    },
-    {
-      id: 57,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "1",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:44.363Z"
-    },
-    {
-      id: 56,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "2",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:42.049Z"
-    },
-    {
-      id: 55,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "3",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:38.405Z"
-    },
-    {
-      id: 54,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "4",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:36.202Z"
-    },
-    {
-      id: 53,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "5",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:33.203Z"
-    },
-    {
-      id: 52,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "6",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:28.834Z"
-    },
-    {
-      id: 51,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "7",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:25.030Z"
-    },
-    {
-      id: 50,
-      actorUserId: 1,
-      action: "update",
-      entityType: "product",
-      entityId: "8",
-      metadata: '{"active":false}',
-      createdAt: "2026-11-04T11:19:21.779Z"
-    },
-    {
-      id: 49,
-      actorUserId: 1,
-      action: "create",
-      entityType: "payment",
-      entityId: "1",
-      metadata: '{"orderId":6,"amountCents":9900}',
-      createdAt: "2026-11-04T03:58:00.551Z"
-    },
-    {
-      id: 48,
-      actorUserId: 1,
-      action: "create",
-      entityType: "message_destination",
-      entityId: "1",
-      metadata: '{"name":"Teste","active":true}',
-      createdAt: "2026-11-04T03:55:16.391Z"
     }
   ]
 };

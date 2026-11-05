@@ -605,8 +605,8 @@ function VitrineChargesFlow({
   recordAction: any;
 }) {
   const [filterAll, setFilterAll] = useState(false);
-  // Estado individual de expansão por pedido/cliente (permite expandir qualquer quantidade de clientes sem fechar outros)
-  const [expandedOrderIds, setExpandedOrderIds] = useState<Record<number, boolean>>({});
+  // Cards expandidos por padrão para exibir os 5 botões e a mensagem imediatamente
+  const [collapsedOrderIds, setCollapsedOrderIds] = useState<Record<number, boolean>>({});
 
   // Pedidos válidos com saldo pendente
   const pendingOrders = useMemo(() => collectibleOrders(orders), [orders]);
@@ -633,32 +633,22 @@ function VitrineChargesFlow({
   }, [pendingOrders, filterAll, selectedProductId]);
 
   const toggleOrderExpand = (orderId: number) => {
-    setExpandedOrderIds(prev => ({
+    setCollapsedOrderIds(prev => ({
       ...prev,
       [orderId]: !prev[orderId],
     }));
   };
 
   const allRelevantExpanded =
-    relevantOrders.length > 0 && relevantOrders.every(o => Boolean(expandedOrderIds[o.id]));
+    relevantOrders.length > 0 && relevantOrders.every(o => !collapsedOrderIds[o.id]);
 
   const toggleAllRelevant = () => {
     if (allRelevantExpanded) {
-      setExpandedOrderIds(prev => {
-        const next = { ...prev };
-        for (const o of relevantOrders) {
-          delete next[o.id];
-        }
-        return next;
-      });
+      const next: Record<number, boolean> = {};
+      for (const o of relevantOrders) next[o.id] = true;
+      setCollapsedOrderIds(next);
     } else {
-      setExpandedOrderIds(prev => {
-        const next = { ...prev };
-        for (const o of relevantOrders) {
-          next[o.id] = true;
-        }
-        return next;
-      });
+      setCollapsedOrderIds({});
     }
   };
 
@@ -751,7 +741,7 @@ function VitrineChargesFlow({
         {relevantOrders.length > 0 ? (
           <div className="vmc-charge-cards-list">
             {relevantOrders.map(order => {
-              const isExpanded = Boolean(expandedOrderIds[order.id]);
+              const isExpanded = !collapsedOrderIds[order.id];
               return (
                 <VitrineChargeCardItem
                   key={order.id}
