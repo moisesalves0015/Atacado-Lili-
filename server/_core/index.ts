@@ -17,8 +17,9 @@ async function startServer() {
     serveStatic(app);
   }
 
-  let currentPort = Number(process.env.PORT || "3000");
+  let currentPort = Number(process.env.PORT || "3001");
   if (!Number.isInteger(currentPort) || currentPort < 1 || currentPort > 65535) throw new Error("Invalid PORT");
+
   server.on("error", (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE" && currentPort < 65535) {
       console.warn(`Port ${currentPort} is in use, trying port ${currentPort + 1}...`);
@@ -29,8 +30,21 @@ async function startServer() {
     console.error("Server failed:", error.message);
     process.exit(1);
   });
+
   server.listen(currentPort, "0.0.0.0", () => {
     console.log(`Server listening on http://localhost:${currentPort}`);
+
+    // Também escuta na outra porta comum (3000 ou 3001) para que funcione em ambas no navegador
+    const altPort = currentPort === 3001 ? 3000 : 3001;
+    try {
+      const altServer = createServer(app);
+      altServer.on("error", () => {
+        // Ignora se a porta alternativa já estiver em uso
+      });
+      altServer.listen(altPort, "0.0.0.0", () => {
+        console.log(`Also listening on http://localhost:${altPort}`);
+      });
+    } catch {}
   });
 }
 
