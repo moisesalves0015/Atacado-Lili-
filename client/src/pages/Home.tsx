@@ -879,6 +879,20 @@ function QuickSaleHomeView({
           <button type="button" className="mini-icon-btn" onClick={onAddClient} title="Nova cliente">
             <UserPlus size={16} />
           </button>
+          <button
+            type="button"
+            className="mini-icon-btn"
+            onClick={async () => {
+              if ("caches" in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+              }
+              window.location.reload();
+            }}
+            title="Atualizar versão e limpar cache"
+          >
+            <RefreshCw size={15} />
+          </button>
           <button type="button" className="mini-icon-btn accent" onClick={onMinimize} title="Diminuir / Painel completo">
             <Minimize2 size={16} />
           </button>
