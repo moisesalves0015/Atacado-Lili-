@@ -120,7 +120,7 @@ export const defaultGroupUpdateOptions: GroupUpdateOptions = {
   showPhones: false,
   showTotals: true,
   showProgress: true,
-  showPaymentStatus: true,
+  showPaymentStatus: false,
   showDescription: true,
   includePix: false,
   intro: "Atualização da lista",

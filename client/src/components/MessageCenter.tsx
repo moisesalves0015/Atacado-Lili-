@@ -243,7 +243,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
   const totals = reportTotals(rows);
 
   const [goalInput, setGoalInput] = useState("");
-  const [options, setOptions] = useState<GroupUpdateOptions>(defaultGroupUpdateOptions);
+  const [options, setOptions] = useState<GroupUpdateOptions>(() => ({ ...defaultGroupUpdateOptions, showPaymentStatus: true }));
   const [override, setOverride] = useState<{ text: string; base: string } | null>(null);
   const [key, setKey] = useState(() => newKey("update"));
   const [status, setStatus] = useState<ActionStatus | null>(null);

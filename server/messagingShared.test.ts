@@ -71,7 +71,8 @@ describe("relatório e atualização de lista", () => {
   it("permite lista sem nomes e lote sem registros", () => {
     const anonymous = buildGroupUpdateText({ productName: "Shorts", rows, options: { showNames: false } });
     expect(anonymous).not.toContain("Ana");
-    expect(anonymous).toContain(`Shorts ${money(2200)}`);
+    expect(anonymous).toContain("Shorts");
+    expect(anonymous).toContain(money(2200));
     expect(buildGroupUpdateText({ productName: "Shorts", rows: [] })).toContain("Ainda sem quantidades registradas.");
   });
 

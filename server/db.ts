@@ -71,9 +71,8 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
-export function normalizePhone(phone: string) {
-  return phone.replace(/\D/g, "");
-}
+import { normalizePhone } from "../shared/vcf";
+export { normalizePhone };
 
 function deriveStatus(totalCents: number, paidCents: number, dueDate: Date | null, cancelled = false) {
   if (cancelled) return "cancelled" as const;
@@ -344,7 +343,8 @@ export async function createClient(actorUserId: number, input: { name: string; p
       createdAt: now,
       updatedAt: now,
     });
-    await writeAudit(null, actorUserId, "create", "client", String(id), { name: input.name });
+    // Auditoria sem PII (sem expor nome ou telefone nos logs)
+    await writeAudit(null, actorUserId, "create", "client", String(id), { hasPhone: hasRealPhone });
     await saveStore();
     return { id };
   }
@@ -361,68 +361,176 @@ export async function createClient(actorUserId: number, input: { name: string; p
     notes: input.notes?.trim() || null,
   });
   const id = Number((result as any).insertId);
-  await writeAudit(db, actorUserId, "create", "client", String(id), { name: input.name });
+  // Auditoria sem PII (sem expor nome ou telefone nos logs)
+  await writeAudit(db, actorUserId, "create", "client", String(id), { hasPhone: hasRealPhone });
   return { id };
 }
 
-export async function importClients(actorUserId: number, input: Array<{ name: string; phone: string; notes?: string }>) {
+export async function importClients(
+  actorUserId: number,
+  input: Array<{ name?: string; phone?: string; notes?: string; source?: string }>,
+  source: "vcf_import" | "device_contact" | "manual" = "vcf_import"
+) {
   const db = await getDb();
-  const candidates = input.map(contact => ({ ...contact, phoneNormalized: normalizePhone(contact.phone) }));
-  const validCandidates = candidates.filter(contact => contact.phoneNormalized.length >= 8);
+  const effectiveSource = input[0]?.source || source;
+
+  // Normaliza candidatos
+  const candidates = input.map(item => {
+    const rawName = (item.name || "").trim();
+    const rawPhone = (item.phone || "").trim();
+    const digits = rawPhone.replace(/\D/g, "");
+    const hasValidPhone = digits.length >= 8;
+    const phoneNormalized = hasValidPhone ? normalizePhone(rawPhone) : "";
+    const name = rawName || (hasValidPhone ? `Cliente ${rawPhone}` : "");
+    const isValid = Boolean(name || hasValidPhone);
+    return {
+      name,
+      phone: rawPhone,
+      phoneNormalized,
+      hasValidPhone,
+      notes: item.notes?.trim() || null,
+      isValid,
+    };
+  });
+
+  const validCandidates = candidates.filter(c => c.isValid);
+  const invalid = candidates.length - validCandidates.length;
+
   if (!db) {
     const store = getStore();
-    const taken = new Set(store.clients.map(c => c.phoneNormalized));
-    const seen = new Set<string>();
+    const takenPhones = new Set(
+      store.clients
+        .filter(c => c.phoneNormalized && !c.phoneNormalized.startsWith("sem-contato-"))
+        .map(c => c.phoneNormalized)
+    );
+    const takenNames = new Set(store.clients.map(c => c.name.toLowerCase().trim()));
+    const seenPhones = new Set<string>();
+    const seenNames = new Set<string>();
+
     let imported = 0;
     let duplicates = 0;
-    const invalid = candidates.length - validCandidates.length;
+    const importedIds: number[] = [];
     const now = new Date();
+
     for (const contact of validCandidates) {
-      if (taken.has(contact.phoneNormalized) || seen.has(contact.phoneNormalized)) {
-        duplicates += 1;
-        continue;
+      if (contact.hasValidPhone) {
+        if (takenPhones.has(contact.phoneNormalized) || seenPhones.has(contact.phoneNormalized)) {
+          duplicates += 1;
+          continue;
+        }
+        seenPhones.add(contact.phoneNormalized);
+      } else {
+        const lowerName = contact.name.toLowerCase().trim();
+        if (takenNames.has(lowerName) || seenNames.has(lowerName)) {
+          duplicates += 1;
+          continue;
+        }
+        seenNames.add(lowerName);
       }
-      seen.add(contact.phoneNormalized);
+
       store.counters.clients += 1;
+      const id = store.counters.clients;
+      const finalPhoneNormalized = contact.hasValidPhone
+        ? contact.phoneNormalized
+        : `sem-contato-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
       store.clients.push({
-        id: store.counters.clients,
-        name: contact.name.trim(),
-        phone: contact.phone.trim(),
-        phoneNormalized: contact.phoneNormalized,
-        notes: contact.notes?.trim() || null,
+        id,
+        name: contact.name,
+        phone: contact.phone,
+        phoneNormalized: finalPhoneNormalized,
+        notes: contact.notes,
         active: true,
         createdAt: now,
         updatedAt: now,
       });
       imported += 1;
+      importedIds.push(id);
     }
+
     if (imported > 0) {
-      await writeAudit(null, actorUserId, "import", "client", "bulk", { imported, duplicates, invalid });
+      // Auditoria estritamente proporcional: contagens e origem sem PII (nomes/telefones)
+      await writeAudit(null, actorUserId, "import", "client", "bulk", {
+        count: imported,
+        duplicates,
+        invalid,
+        source: effectiveSource,
+      });
       await saveStore();
     }
-    return { imported, duplicates, invalid };
+    return { imported, duplicates, invalid, importedIds };
   }
-  const existingRows = validCandidates.length
-    ? await db.select({ phoneNormalized: clients.phoneNormalized }).from(clients).where(inArray(clients.phoneNormalized, [...new Set(validCandidates.map(contact => contact.phoneNormalized))]))
+
+  // Modo com Banco de Dados relacional
+  const phoneCandidates = validCandidates.filter(c => c.hasValidPhone);
+  const existingPhones = phoneCandidates.length
+    ? await db
+        .select({ phoneNormalized: clients.phoneNormalized })
+        .from(clients)
+        .where(
+          inArray(clients.phoneNormalized, [...new Set(phoneCandidates.map(c => c.phoneNormalized))])
+        )
     : [];
-  const taken = new Set(existingRows.map(row => row.phoneNormalized));
-  const seen = new Set<string>();
+  const takenPhones = new Set(existingPhones.map(r => r.phoneNormalized));
+
+  const nameCandidates = validCandidates.filter(c => !c.hasValidPhone);
+  const existingNames = nameCandidates.length
+    ? await db
+        .select({ name: clients.name })
+        .from(clients)
+        .where(inArray(clients.name, [...new Set(nameCandidates.map(c => c.name))]))
+    : [];
+  const takenNames = new Set(existingNames.map(r => r.name.toLowerCase().trim()));
+
+  const seenPhones = new Set<string>();
+  const seenNames = new Set<string>();
   const rows: Array<{ name: string; phone: string; phoneNormalized: string; notes: string | null }> = [];
   let duplicates = 0;
-  let invalid = candidates.length - validCandidates.length;
+
   for (const contact of validCandidates) {
-    if (taken.has(contact.phoneNormalized) || seen.has(contact.phoneNormalized)) {
-      duplicates += 1;
-      continue;
+    if (contact.hasValidPhone) {
+      if (takenPhones.has(contact.phoneNormalized) || seenPhones.has(contact.phoneNormalized)) {
+        duplicates += 1;
+        continue;
+      }
+      seenPhones.add(contact.phoneNormalized);
+      rows.push({
+        name: contact.name,
+        phone: contact.phone,
+        phoneNormalized: contact.phoneNormalized,
+        notes: contact.notes,
+      });
+    } else {
+      const lowerName = contact.name.toLowerCase().trim();
+      if (takenNames.has(lowerName) || seenNames.has(lowerName)) {
+        duplicates += 1;
+        continue;
+      }
+      seenNames.add(lowerName);
+      rows.push({
+        name: contact.name,
+        phone: contact.phone,
+        phoneNormalized: `sem-contato-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        notes: contact.notes,
+      });
     }
-    seen.add(contact.phoneNormalized);
-    rows.push({ name: contact.name.trim(), phone: contact.phone.trim(), phoneNormalized: contact.phoneNormalized, notes: contact.notes?.trim() || null });
   }
+
   for (let index = 0; index < rows.length; index += 250) {
     await db.insert(clients).values(rows.slice(index, index + 250));
   }
-  if (rows.length) await writeAudit(db, actorUserId, "import", "client", "bulk", { imported: rows.length, duplicates, invalid });
-  return { imported: rows.length, duplicates, invalid };
+
+  if (rows.length > 0) {
+    // Auditoria estritamente proporcional: contagens e origem sem PII
+    await writeAudit(db, actorUserId, "import", "client", "bulk", {
+      count: rows.length,
+      duplicates,
+      invalid,
+      source: effectiveSource,
+    });
+  }
+
+  return { imported: rows.length, duplicates, invalid, importedIds: [] };
 }
 
 export async function updateClient(actorUserId: number, id: number, input: { name?: string; phone?: string; notes?: string; active?: boolean }) {
@@ -439,7 +547,8 @@ export async function updateClient(actorUserId: number, id: number, input: { nam
     if (input.notes !== undefined) client.notes = input.notes.trim() || null;
     if (input.active !== undefined) client.active = input.active;
     client.updatedAt = new Date();
-    await writeAudit(null, actorUserId, "update", "client", String(id), input);
+    // Auditoria sem PII
+    await writeAudit(null, actorUserId, "update", "client", String(id), { fields: Object.keys(input) });
     await saveStore();
     return { ok: true };
   }
@@ -452,7 +561,8 @@ export async function updateClient(actorUserId: number, id: number, input: { nam
   if (input.notes !== undefined) values.notes = input.notes.trim() || null;
   if (input.active !== undefined) values.active = input.active;
   await db.update(clients).set(values).where(eq(clients.id, id));
-  await writeAudit(db, actorUserId, "update", "client", String(id), input);
+  // Auditoria sem PII
+  await writeAudit(db, actorUserId, "update", "client", String(id), { fields: Object.keys(input) });
   return { ok: true };
 }
 

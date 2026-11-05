@@ -50,7 +50,12 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const expectedUser = ENV.adminUser.toLowerCase();
         const providedUser = (input.username?.trim() || "admin").toLowerCase();
-        const validPasswords = new Set([ENV.adminPassword, "1234", "admin", "admin123"]);
+        const isProd = ENV.isProduction;
+        const validPasswords = new Set(
+          isProd
+            ? [ENV.adminPassword].filter(p => Boolean(p) && !["1234", "admin", "admin123", "password"].includes(p))
+            : [ENV.adminPassword, "1234", "admin", "admin123"]
+        );
 
         if (providedUser !== expectedUser || !validPasswords.has(input.password.trim())) {
           throw new TRPCError({
@@ -128,7 +133,38 @@ export const appRouter = router({
       const { id, ...data } = input;
       return updateClient(ctx.user.id, id, data);
     }),
-    importVcf: adminProcedure.input(z.object({ contacts: z.array(z.object({ name: z.string().trim().min(1), phone: z.string().trim().min(1), notes: z.string().optional() })).min(1) })).mutation(({ ctx, input }) => importClients(ctx.user.id, input.contacts)),
+    importBatch: adminProcedure
+      .input(
+        z.object({
+          contacts: z.array(
+            z.object({
+              name: z.string().trim().optional(),
+              phone: z.string().trim().optional(),
+              notes: z.string().optional(),
+              source: z.enum(["vcf_import", "device_contact", "manual"]).optional(),
+            })
+          ).min(1),
+          source: z.enum(["vcf_import", "device_contact", "manual"]).optional(),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        importClients(ctx.user.id, input.contacts, input.source)
+      ),
+    importVcf: adminProcedure
+      .input(
+        z.object({
+          contacts: z.array(
+            z.object({
+              name: z.string().trim().optional(),
+              phone: z.string().trim().optional(),
+              notes: z.string().optional(),
+            })
+          ).min(1),
+        })
+      )
+      .mutation(({ ctx, input }) =>
+        importClients(ctx.user.id, input.contacts, "vcf_import")
+      ),
   }),
 
   orders: router({

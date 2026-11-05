@@ -33,6 +33,7 @@ import {
   Search,
   Settings,
   ShoppingBag,
+  Smartphone,
   Trash2,
   Upload,
   UserPlus,
@@ -44,6 +45,9 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import MessageCenter, { type MessageIntent } from "@/components/MessageCenter";
 import VitrineMessageCenter from "@/components/VitrineMessageCenter";
+import { formatPhoneDisplay, parseVcf, type ParsedContact } from "@shared/vcf";
+import { checkContactPickerSupport, openDeviceContactPicker } from "@/lib/contactPicker";
+import { ClientImportModal } from "@/components/ClientImportModal";
 
 type Section = "dashboard" | "messages" | "products" | "product" | "clients" | "orders" | "charges" | "finance" | "reports" | "settings";
 type ProductForm = { id: number | null; name: string; price: string; category: string; description: string; imageUrl: string };
@@ -101,14 +105,6 @@ function statusClass(status: string) {
   return ({ paid: "status-paid", partial: "status-partial", overdue: "status-overdue", cancelled: "status-cancelled", pending: "status-pending" } as Record<string, string>)[status] ?? "status-pending";
 }
 
-function parseVcf(raw: string): VcfContact[] {
-  return raw.split(/BEGIN:VCARD/i).slice(1).map(block => {
-    const name = block.match(/(?:^|\n)FN(?:;[^:]*)?:([^\n\r]+)/i)?.[1]?.trim().replace(/\\,/g, ",") ?? "";
-    const phone = block.match(/(?:^|\n)TEL(?:;[^:]*)?:([^\n\r]+)/i)?.[1]?.trim() ?? "";
-    return { name, phone };
-  }).filter(contact => contact.name && contact.phone);
-}
-
 
 
 
@@ -162,8 +158,10 @@ export default function Home() {
   const [sale, setSale] = useState(emptySale);
   const [showProductForm, setShowProductForm] = useState(false);
   const [showClientForm, setShowClientForm] = useState(false);
-  const [showVcf, setShowVcf] = useState(false);
-  const [vcfPreview, setVcfPreview] = useState<VcfContact[]>([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importModalContacts, setImportModalContacts] = useState<ParsedContact[]>([]);
+  const [importModalTitle, setImportModalTitle] = useState("");
+  const [deviceContactPickerError, setDeviceContactPickerError] = useState<string | null>(null);
   const [chargeDraft, setChargeDraft] = useState<{ order: any; templateId: number; message: string } | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Pix");
@@ -195,6 +193,7 @@ export default function Home() {
   const createClient = trpc.clients.create.useMutation();
   const updateClient = trpc.clients.update.useMutation();
   const importVcf = trpc.clients.importVcf.useMutation();
+  const importBatch = trpc.clients.importBatch.useMutation();
   const createOrder = trpc.orders.create.useMutation();
   const updateOrder = trpc.orders.update.useMutation();
   const cancelOrder = trpc.orders.cancel.useMutation();
@@ -222,7 +221,6 @@ export default function Home() {
   const dueReminders = (dueRemindersQuery.data ?? []) as any[];
   const dashboard: any = dashboardQuery.data;
   const selectedOrder: any = orderDetailQuery.data;
-  const vcfInvalidCount = vcfPreview.filter(contact => contact.phone.replace(/\D/g, "").length < 8).length;
   const orderTotalCents = useMemo(() => sale.items.reduce((total, item) => {
     const product = products.find(product => product.id === Number(item.productId));
     return total + (product ? product.priceCents * Math.max(0, Number(item.quantity) || 0) : 0);
@@ -481,9 +479,38 @@ export default function Home() {
 
   const handleVcfFile = async (file?: File) => {
     if (!file) return;
-    const contacts = parseVcf(await file.text());
-    setVcfPreview(contacts);
-    setShowVcf(true);
+    try {
+      const text = await file.text();
+      const contacts = parseVcf(text);
+      if (contacts.length === 0) {
+        toast.error("Nenhum contato encontrado no arquivo VCF selecionado.");
+        return;
+      }
+      setImportModalContacts(contacts);
+      setImportModalTitle("Arquivo VCF");
+      setImportModalOpen(true);
+    } catch (err: any) {
+      toast.error(`Falha ao ler arquivo VCF: ${err?.message || "Arquivo inválido"}`);
+    }
+  };
+
+  const handleDeviceContacts = async () => {
+    const support = checkContactPickerSupport();
+    if (!support.supported) {
+      setDeviceContactPickerError(support.reason || "Seletor de contatos não suportado.");
+      return;
+    }
+    try {
+      const contacts = await openDeviceContactPicker();
+      if (!contacts || contacts.length === 0) {
+        return;
+      }
+      setImportModalContacts(contacts);
+      setImportModalTitle("Contatos do Aparelho");
+      setImportModalOpen(true);
+    } catch (err: any) {
+      setDeviceContactPickerError(err?.message || "Não foi possível carregar os contatos do aparelho.");
+    }
   };
 
   const submitLogin = async (event?: React.FormEvent) => {
@@ -617,7 +644,7 @@ export default function Home() {
           )}
           {section === "products" && <ProductsView products={products} search={productSearch} setSearch={setProductSearch} onAdd={() => { setProductForm(emptyProduct); setProductImageFile(null); setShowProductForm(true); }} onOpen={(id: number) => { setSelectedProductId(id); navigate("product"); }} onEdit={(product: any) => { setProductForm({ id: product.id, name: product.name, price: centsToInput(product.priceCents), category: product.category ?? "", description: product.description ?? "", imageUrl: product.imageUrl ?? "" }); setProductImageFile(null); setShowProductForm(true); }} onDuplicate={(product: any) => run(() => duplicateProduct.mutateAsync({ id: product.id }), "Produto duplicado")} onToggle={(product: any) => run(() => updateProduct.mutateAsync({ id: product.id, active: !product.active }), product.active ? "Produto encerrado" : "Produto reativado")} />}
           {section === "product" && <ProductDetailView detail={productDetailQuery.data as any} loading={productDetailQuery.isLoading} onBack={() => navigate("products")} onOrder={setSelectedOrderId} onCharge={openCharge} />}
-          {section === "clients" && <ClientsView clients={clients} search={clientSearch} setSearch={setClientSearch} onAdd={() => { setClientForm(emptyClient); setShowClientForm(true); }} onEdit={(client: any) => { setClientForm({ id: client.id, name: client.name, phone: client.phone, notes: client.notes ?? "" }); setShowClientForm(true); }} onToggle={(client: any) => run(() => updateClient.mutateAsync({ id: client.id, active: !client.active }), client.active ? "Cliente arquivado" : "Cliente reativado")} onFile={handleVcfFile} />}
+          {section === "clients" && <ClientsView clients={clients} search={clientSearch} setSearch={setClientSearch} onAdd={() => { setClientForm(emptyClient); setShowClientForm(true); }} onEdit={(client: any) => { setClientForm({ id: client.id, name: client.name, phone: client.phone, notes: client.notes ?? "" }); setShowClientForm(true); }} onToggle={(client: any) => run(() => updateClient.mutateAsync({ id: client.id, active: !client.active }), client.active ? "Cliente arquivado" : "Cliente reativado")} onFile={handleVcfFile} onDeviceContacts={handleDeviceContacts} />}
           {section === "orders" && <OrdersView clients={clients} products={products} orders={orders} sale={sale} setSale={setSale} totalCents={orderTotalCents} onSave={submitSale} search={orderSearch} setSearch={setOrderSearch} status={orderStatus} setStatus={setOrderStatus} onOpen={setSelectedOrderId} onCharge={openCharge} />}
           {section === "charges" && <ChargesView charges={(chargesQuery.data ?? []) as any[]} templates={templates} onSaveTemplate={(id: number, body: string) => run(() => updateTemplate.mutateAsync({ id, body }), "Modelo atualizado")} onOpenOrder={setSelectedOrderId} onCharge={openCharge} />}
           {section === "finance" && <FinanceView orders={orders} onOpen={setSelectedOrderId} onCharge={openCharge} />}
@@ -737,7 +764,58 @@ export default function Home() {
         </div>
       </Modal>
     )}
-    {showVcf && <Modal title="Importar contatos VCF" onClose={() => setShowVcf(false)}><div className="import-summary"><div><strong>{vcfPreview.length}</strong><span>contatos na prévia</span></div><div><strong>{new Set(vcfPreview.map(contact => contact.phone.replace(/\D/g, ""))).size}</strong><span>telefones únicos</span></div><div className={vcfInvalidCount ? "import-warning" : ""}><strong>{vcfInvalidCount}</strong><span>telefones curtos ignorados</span></div></div>{vcfInvalidCount > 0 && <p className="microcopy import-warning-text">Alguns cartões possuem códigos ou telefones incompletos. Eles serão ignorados; os contatos válidos serão importados normalmente.</p>}<div className="vcf-list">{vcfPreview.map((contact, index) => <div className={`vcf-row ${contact.phone.replace(/\D/g, "").length < 8 ? "invalid-row" : ""}`} key={`${contact.phone}-${index}`}><span>{contact.name}</span><small>{contact.phone}{contact.phone.replace(/\D/g, "").length < 8 ? " · ignorado" : ""}</small></div>)}</div><div className="modal-actions"><Button variant="outline" onClick={() => setShowVcf(false)}>Cancelar</Button><Button disabled={!vcfPreview.length || vcfInvalidCount === vcfPreview.length || importVcf.isPending} onClick={() => run(async () => { const result = await importVcf.mutateAsync({ contacts: vcfPreview }); if (result.invalid) toast.info(`${result.invalid} contato(s) foram ignorado(s) por telefone insuficiente`); setShowVcf(false); }, "Contatos válidos importados")}>{importVcf.isPending ? "Importando contatos..." : "Importar contatos válidos"}</Button></div></Modal>}
+    <ClientImportModal
+      isOpen={importModalOpen}
+      onClose={() => setImportModalOpen(false)}
+      rawContacts={importModalContacts}
+      existingClients={clients}
+      sourceTitle={importModalTitle}
+      onImportBatch={async (chunk, src) => {
+        return await importBatch.mutateAsync({ contacts: chunk, source: src });
+      }}
+      onSuccess={result => {
+        toast.success(
+          `${result.imported} ${result.imported === 1 ? "cliente importado" : "clientes importados"} com sucesso!` +
+            (result.duplicates > 0 ? ` (${result.duplicates} duplicados ignorados)` : "")
+        );
+        utils.clients.list.invalidate();
+        utils.dashboard.summary.invalidate();
+      }}
+    />
+    {deviceContactPickerError && (
+      <Modal title="Contatos do Aparelho" onClose={() => setDeviceContactPickerError(null)}>
+        <div style={{ padding: "8px 0" }}>
+          <p style={{ fontSize: "13px", lineHeight: "1.5", color: "#333", marginBottom: "14px" }}>
+            {deviceContactPickerError}
+          </p>
+          <div style={{ background: "#f8f9fa", border: "1px solid #e9ecef", padding: "12px", borderRadius: "8px", fontSize: "12px", color: "#555", marginBottom: "16px", lineHeight: "1.5" }}>
+            <strong>Como exportar do seu celular:</strong>
+            <ol style={{ margin: "6px 0 0 16px", padding: 0 }}>
+              <li>Abra o aplicativo de <strong>Contatos</strong> da sua agenda no celular.</li>
+              <li>Acesse o menu ou configurações e toque em <strong>Exportar contatos</strong>.</li>
+              <li>Salve o arquivo <strong>.vcf</strong> e use o botão <strong>Importar VCF</strong> aqui no Atacado Lili.</li>
+            </ol>
+          </div>
+          <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <Button variant="outline" onClick={() => setDeviceContactPickerError(null)}>
+              Entendido
+            </Button>
+            <label className="upload-button" style={{ margin: 0, cursor: "pointer" }}>
+              <Upload size={16} /> Escolher arquivo VCF
+              <input
+                type="file"
+                accept=".vcf,text/vcard"
+                onChange={event => {
+                  setDeviceContactPickerError(null);
+                  handleVcfFile(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+        </div>
+      </Modal>
+    )}
     {chargeDraft && <Modal title="Preparar cobrança" onClose={() => setChargeDraft(null)}><div className="charge-recipient"><div className="avatar">{chargeDraft.order.client?.name?.charAt(0) ?? "C"}</div><div><strong>{chargeDraft.order.client?.name}</strong><span>{chargeDraft.order.client?.phone} · saldo {formatMoney(Math.max(0, chargeDraft.order.totalCents - chargeDraft.order.paidCents))}</span></div></div><label>Modelo<select value={chargeDraft.templateId} onChange={event => { const id = Number(event.target.value); const template = templates.find(item => item.id === id); if (template) setChargeDraft({ ...chargeDraft, templateId: id, message: templateMessage(template.body, chargeDraft.order) }); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Mensagem<textarea className="message-editor" value={chargeDraft.message} onChange={event => setChargeDraft({ ...chargeDraft, message: event.target.value })} /></label><p className="microcopy">O botão abre o WhatsApp com o texto preenchido. O envio final depende da sua confirmação dentro do WhatsApp.</p><div className="modal-actions"><Button variant="outline" onClick={() => navigator.clipboard?.writeText(chargeDraft.message).then(() => toast.success("Mensagem copiada"))}><Copy size={16} /> Copiar</Button><Button onClick={submitCharge}><MessageCircle size={16} /> Abrir WhatsApp</Button></div></Modal>}
     {selectedOrderId && <OrderDrawer order={selectedOrder} clients={clients} products={products} editor={orderEditor} setEditor={setOrderEditor} editing={editingOrder} setEditing={setEditingOrder} paymentAmount={paymentAmount} setPaymentAmount={setPaymentAmount} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onClose={() => setSelectedOrderId(null)} onSaveEdit={submitOrderEdit} onPayment={submitPayment} onCancel={() => run(() => cancelOrder.mutateAsync({ id: selectedOrderId }), "Pedido cancelado")} onCharge={openCharge} />}
     <VitrineMessageCenter
@@ -1149,8 +1227,104 @@ function ProductDetailView({ detail, loading, onBack, onOrder, onCharge }: any) 
   return <div className="content-stack"><button className="back-button" onClick={onBack}><ArrowLeft size={16} /> Voltar para produtos</button><section className="product-detail-head"><div className="detail-photo">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <Package size={32} />}</div><div className="detail-copy"><div className="eyebrow">visão do produto</div><h2>{product.name}</h2><p>{product.category || "Sem categoria"} · {formatMoney(product.priceCents)} por peça</p></div></section><div className="mini-stats"><div><span>Peças vendidas</span><strong>{stats.totalPieces}</strong></div><div><span>Faturamento</span><strong>{formatMoney(stats.soldCents)}</strong></div><div><span>Recebido</span><strong>{formatMoney(stats.receivedCents)}</strong></div><div><span>Em aberto</span><strong className="text-coral">{formatMoney(stats.pendingCents)}</strong></div><div><span>Clientes</span><strong>{stats.totalClients}</strong></div></div><section className="panel"><div className="panel-heading"><div><div className="eyebrow">pedidos relacionados</div><h3>Quem comprou {product.name}</h3></div><div className="status-pills compact"><span>{stats.paidOrders} pagos</span><span>{stats.partialOrders} parciais</span><span>{stats.pendingOrders} pendentes</span></div></div>{items.length ? <div className="table-wrap product-orders-table"><table><thead><tr><th>Cliente</th><th>Qtd.</th><th>Total</th><th>Recebido</th><th>Saldo</th><th>Status</th><th /></tr></thead><tbody>{items.map((item: any) => <tr key={item.id}><td><div className="table-person"><div className="row-avatar">{item.client.name.charAt(0)}</div><div><strong>{item.client.name}</strong><small>{item.client.phone}</small></div></div></td><td>{item.quantity}</td><td>{formatMoney(item.totalCents)}</td><td>{formatMoney(item.paidCents)}</td><td className={item.remainingCents ? "text-coral" : ""}>{formatMoney(item.remainingCents)}</td><td><StatusBadge status={item.status} /></td><td><div className="table-actions"><button onClick={() => onOrder(item.orderId)}>Detalhes</button>{item.remainingCents > 0 && <button className="whatsapp-mini" onClick={() => onCharge({ id: item.orderId, code: item.code, client: item.client, totalCents: item.totalCents, paidCents: item.paidCents, items: [{ productName: product.name, quantity: item.quantity }], dueDate: item.dueDate })}><MessageCircle size={14} /> Cobrar</button>}</div></td></tr>)}</tbody></table></div> : <EmptyState icon={ClipboardList} title="Ainda sem pedidos para este produto" description="Quando uma venda for registrada, todos os clientes aparecerão aqui com o status de pagamento." />}</section></div>;
 }
 
-function ClientsView({ clients, search, setSearch, onAdd, onEdit, onToggle, onFile }: any) {
-  return <div className="content-stack"><SectionHeader eyebrow="carteira de clientes" title="Clientes" description="Tenha telefones prontos para registrar, cobrar e montar relatórios." action={<div className="header-actions"><label className="upload-button"><Upload size={16} /> Importar VCF<input type="file" accept=".vcf,text/vcard" onChange={event => onFile(event.target.files?.[0])} /></label><Button onClick={onAdd}><Plus size={17} /> Novo cliente</Button></div>} /><div className="toolbar"><div className="search-box"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Pesquisar nome ou telefone..." /></div><span className="result-count">{clients.length} clientes</span></div>{clients.length ? <div className="client-list">{clients.map((client: any) => <div className={`client-row ${!client.active ? "is-inactive" : ""}`} key={client.id}><div className="row-avatar large">{client.name.charAt(0)}</div><div className="client-main"><strong>{client.name}</strong><span>{client.phone}</span>{client.notes && <small>{client.notes}</small>}</div><span className={`client-state ${client.active ? "" : "inactive"}`}>{client.active ? "Ativo" : "Arquivado"}</span><div className="row-actions"><button onClick={() => onEdit(client)} title="Editar"><Pencil size={15} /></button><button onClick={() => onToggle(client)} title={client.active ? "Arquivar" : "Reativar"}>{client.active ? <Archive size={15} /> : <RefreshCw size={15} />}</button></div></div>)}</div> : <EmptyState icon={UsersRound} title="Sua carteira começa aqui" description="Cadastre a primeira cliente ou importe um arquivo VCF do celular." action={<Button onClick={onAdd}><Plus size={16} /> Cadastrar cliente</Button>} />}</div>;
+function ClientsView({ clients, search, setSearch, onAdd, onEdit, onToggle, onFile, onDeviceContacts }: any) {
+  return (
+    <div className="content-stack">
+      <SectionHeader
+        eyebrow="carteira de clientes"
+        title="Clientes"
+        description="Tenha telefones prontos para registrar, cobrar e montar relatórios."
+        action={
+          <div className="header-actions" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onDeviceContacts}
+              title="Selecionar contatos salvos no celular/aparelho"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              <Smartphone size={16} /> Contatos do Aparelho
+            </Button>
+            <label
+              className="upload-button"
+              title="Importar contatos de arquivo .vcf"
+              style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              <Upload size={16} /> Importar VCF
+              <input
+                type="file"
+                accept=".vcf,text/vcard"
+                onChange={event => {
+                  onFile(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            <Button onClick={onAdd}>
+              <Plus size={17} /> Novo cliente
+            </Button>
+          </div>
+        }
+      />
+      <div className="toolbar">
+        <div className="search-box">
+          <Search size={17} />
+          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Pesquisar nome ou telefone..." />
+        </div>
+        <span className="result-count">{clients.length} clientes</span>
+      </div>
+      {clients.length ? (
+        <div className="client-list">
+          {clients.map((client: any) => (
+            <div className={`client-row ${!client.active ? "is-inactive" : ""}`} key={client.id}>
+              <div className="row-avatar large">{client.name.charAt(0)}</div>
+              <div className="client-main">
+                <strong>{client.name}</strong>
+                <span>{client.phone ? formatPhoneDisplay(client.phone) : "Sem telefone"}</span>
+                {client.notes && <small>{client.notes}</small>}
+              </div>
+              <span className={`client-state ${client.active ? "" : "inactive"}`}>{client.active ? "Ativo" : "Arquivado"}</span>
+              <div className="row-actions">
+                <button onClick={() => onEdit(client)} title="Editar">
+                  <Pencil size={15} />
+                </button>
+                <button onClick={() => onToggle(client)} title={client.active ? "Arquivar" : "Reativar"}>
+                  {client.active ? <Archive size={15} /> : <RefreshCw size={15} />}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={UsersRound}
+          title="Sua carteira começa aqui"
+          description="Cadastre a primeira cliente manualmente, selecione contatos do celular ou importe um arquivo VCF."
+          action={
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
+              <Button onClick={onAdd}>
+                <Plus size={16} /> Cadastrar cliente
+              </Button>
+              <Button variant="outline" onClick={onDeviceContacts}>
+                <Smartphone size={16} /> Contatos do Aparelho
+              </Button>
+              <label className="upload-button" style={{ margin: 0, cursor: "pointer" }}>
+                <Upload size={16} /> Importar VCF
+                <input
+                  type="file"
+                  accept=".vcf,text/vcard"
+                  onChange={event => {
+                    onFile(event.target.files?.[0]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          }
+        />
+      )}
+    </div>
+  );
 }
 
 function OrdersView({ clients, products, orders, sale, setSale, totalCents, onSave, search, setSearch, status, setStatus, onOpen, onCharge }: any) {

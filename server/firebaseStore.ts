@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import seedDbRaw from "../data/db.json";
 import type { MessageActionRecord, MessageDestination, MessageLot, MessageReminder, ReminderEvent } from "./messagingTypes";
 
 const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || "atacadolili";
@@ -416,23 +415,55 @@ function mergeStores(base: LocalStoreData, incoming: LocalStoreData): { merged: 
   return { merged, changed };
 }
 
+function createEmptyStore(): LocalStoreData {
+  return {
+    updatedAt: 0,
+    counters: {
+      products: 0,
+      clients: 0,
+      orders: 0,
+      orderItems: 0,
+      payments: 0,
+      chargeTemplates: 0,
+      charges: 0,
+      auditLogs: 0,
+      messageDestinations: 0,
+      messageLots: 0,
+      messageReminders: 0,
+      reminderEvents: 0,
+      messageActions: 0,
+    },
+    messageDestinations: [],
+    messageLots: [],
+    messageReminders: [],
+    reminderEvents: [],
+    messageActions: [],
+    products: [],
+    clients: [],
+    orders: [],
+    orderItems: [],
+    payments: [],
+    chargeTemplates: [],
+    charges: [],
+    auditLogs: [],
+  };
+}
+
 export function getStore(): LocalStoreData {
   if (!storeCache) {
-    // 1. Start from embedded seedDbRaw compiled directly into the bundle
-    const embeddedSeed = reviveDates(seedDbRaw);
-    storeCache = embeddedSeed;
+    storeCache = createEmptyStore();
 
-    // 2. Merge with disk file if present (e.g. local data/db.json or Vercel /tmp)
+    // Carrega dados dinamicamente do disco se presente em tempo de execução
     try {
       if (fs.existsSync(DATA_FILE)) {
         const diskData = reviveDates(JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")));
-        storeCache = mergeStores(diskData, embeddedSeed).merged;
+        storeCache = mergeStores(storeCache, diskData).merged;
       } else if (fs.existsSync(BUNDLED_DATA_FILE)) {
         const bundledData = reviveDates(JSON.parse(fs.readFileSync(BUNDLED_DATA_FILE, "utf-8")));
-        storeCache = mergeStores(bundledData, embeddedSeed).merged;
+        storeCache = mergeStores(storeCache, bundledData).merged;
       }
     } catch {
-      // Keep embeddedSeed
+      // Mantém estrutura limpa em memória
     }
 
     localUpdatedAt = storeCache.updatedAt ?? 0;
@@ -456,6 +487,15 @@ export async function ensureStoreLoaded(): Promise<LocalStoreData> {
   return storeCache ?? store;
 }
 
+function getFirestoreHeaders(contentType?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (contentType) headers["Content-Type"] = contentType;
+  if (process.env.FIREBASE_AUTH_TOKEN) {
+    headers["Authorization"] = `Bearer ${process.env.FIREBASE_AUTH_TOKEN}`;
+  }
+  return headers;
+}
+
 async function firestoreGetDoc(docId: string, timeoutMs = 6000): Promise<Record<string, any> | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
@@ -463,6 +503,7 @@ async function firestoreGetDoc(docId: string, timeoutMs = 6000): Promise<Record<
     try {
       const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
         method: "GET",
+        headers: getFirestoreHeaders(),
         signal: controller.signal,
       });
       if (res.status === 404) return null;
@@ -508,7 +549,7 @@ async function firestoreSetDoc(docId: string, payload: Record<string, string | n
     try {
       const res = await fetch(`${FIRESTORE_BASE_URL}/${docId}?key=${FIREBASE_API_KEY}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: getFirestoreHeaders("application/json"),
         body: bodyStr,
         signal: controller.signal,
       });
@@ -579,6 +620,7 @@ async function pullRemoteFromFirestore(): Promise<LocalStoreData | null> {
 }
 
 async function syncWithFirestore(): Promise<void> {
+  if (process.env.NODE_ENV === "test") return;
   const startMutationVersion = mutationVersion;
   try {
     const local = getStore();
@@ -730,6 +772,7 @@ export async function saveStore(): Promise<void> {
     storeCache.auditLogs = storeCache.auditLogs.slice(0, 100);
   }
   writeDisk(storeCache);
+  if (process.env.NODE_ENV === "test") return;
   const ok = await pushStoreToFirestore(storeCache);
   if (!ok) {
     console.warn("[Store] Retrying cloud sync after failure...");
