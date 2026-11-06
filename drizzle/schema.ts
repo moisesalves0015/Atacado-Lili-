@@ -28,6 +28,7 @@ export const products = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     name: varchar("name", { length: 160 }).notNull(),
     priceCents: int("priceCents").notNull(),
+    stock: int("stock").default(0),
     category: varchar("category", { length: 120 }),
     description: text("description"),
     imageUrl: text("imageUrl"),

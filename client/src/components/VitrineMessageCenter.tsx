@@ -282,6 +282,7 @@ function VitrineGroupUpdateFlow({
       productName: selectedProduct.name,
       productPriceCents: selectedProduct.priceCents,
       productDescription: selectedProduct.description,
+      productStock: selectedProduct.stock ?? null,
       rows,
       goalPieces,
       options,
@@ -521,6 +522,15 @@ function VitrineGroupUpdateFlow({
                   onChange={e => setOptions({ ...options, showPaymentStatus: e.target.checked })}
                 />
                 <span>Exibir status de pagamento (✅ Pago)</span>
+              </label>
+
+              <label className="vmc-chk-label">
+                <input
+                  type="checkbox"
+                  checked={Boolean(options.groupByPaymentStatus)}
+                  onChange={e => setOptions({ ...options, groupByPaymentStatus: e.target.checked })}
+                />
+                <span>Dividir lista por status (Pago / Pagamento pendente)</span>
               </label>
 
               <label className="vmc-chk-label">

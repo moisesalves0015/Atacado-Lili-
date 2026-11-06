@@ -35,6 +35,7 @@ export interface LocalStoreData {
     id: number;
     name: string;
     priceCents: number;
+    stock?: number | null;
     category: string | null;
     description: string | null;
     imageUrl: string | null;
@@ -193,6 +194,7 @@ function reviveDates(raw: any): LocalStoreData {
     messageActions: (raw?.messageActions ?? []).map((a: any) => ({ ...a, createdAt: toDate(a.createdAt), updatedAt: toDate(a.updatedAt) })),
     products: (raw?.products ?? []).map((p: any) => ({
       ...p,
+      stock: typeof p.stock === "number" ? p.stock : (Number(p.stock) || 0),
       createdAt: toDate(p.createdAt),
       updatedAt: toDate(p.updatedAt),
     })),

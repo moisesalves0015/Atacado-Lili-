@@ -31,13 +31,52 @@ export type ReportTextOptions = {
   /** Inclui o preco unitario historico no cabecalho do produto (padrao: true). */
   includePrices?: boolean;
   showPaymentStatus?: boolean;
+  /** Divide a lista em blocos "Pago" e "Pagamento pendente" mantendo a ordem original. */
+  groupByPaymentStatus?: boolean;
+  /** Estoque total para cálculo de peças que faltam vender. */
+  productStock?: number | null;
 };
+
+export function isRowPaid(row: ReportRow): boolean {
+  return (
+    Boolean(row.isPaid) ||
+    row.status === "paid" ||
+    (row.paidCents !== undefined && row.paidCents >= row.totalCents && row.totalCents > 0)
+  );
+}
+
+export function reportPieceSummary(rows: ReportRow[], stock?: number | null) {
+  const paidPieces = rows.filter(isRowPaid).reduce((sum, r) => sum + r.quantity, 0);
+  const totalPieces = rows.reduce((sum, r) => sum + r.quantity, 0);
+  const pendingPieces = Math.max(0, totalPieces - paidPieces);
+  const effectiveStock = stock !== undefined && stock !== null && Number(stock) > 0 ? Number(stock) : null;
+  const toSell = effectiveStock !== null ? Math.max(0, effectiveStock - totalPieces) : null;
+
+  return {
+    paidPieces,
+    pendingPieces,
+    totalPieces,
+    toSell,
+  };
+}
+
+export function formatPieceSummaryLines(summary: { paidPieces: number; pendingPieces: number; toSell: number | null }): string[] {
+  const lines: string[] = [
+    `${summary.paidPieces} Peças`,
+    `${summary.pendingPieces} faltam receber`,
+  ];
+  if (summary.toSell !== null) {
+    lines.push(`${summary.toSell} falta vender`);
+  }
+  return lines;
+}
 
 /** Blocos "produto + preço" com as clientes. Usa o preço histórico de cada item. */
 export function buildReportBlocks(rows: ReportRow[], options: ReportTextOptions = {}): string[] {
   const includePhones = options.includePhones ?? true;
   const includePrices = options.includePrices ?? true;
   const showPaymentStatus = options.showPaymentStatus ?? false;
+  const groupByPaymentStatus = options.groupByPaymentStatus ?? false;
   const groups = new Map<string, ReportRow[]>();
   for (const row of rows) {
     const key = includePrices ? `${row.productId}-${row.unitPriceCents}` : `${row.productId}`;
@@ -48,9 +87,9 @@ export function buildReportBlocks(rows: ReportRow[], options: ReportTextOptions 
     const first = group[0];
     const header = includePrices ? `${first.productName} ${formatMoney(first.unitPriceCents)}` : first.productName;
     const formatClient = (row: ReportRow) => {
-      const isPaid = Boolean(row.isPaid) || row.status === "paid" || (row.paidCents !== undefined && row.paidCents >= row.totalCents && row.totalCents > 0);
+      const isPaid = isRowPaid(row);
       const isCharged = Boolean(row.isCharged);
-      const statusTag = showPaymentStatus
+      const statusTag = showPaymentStatus && !groupByPaymentStatus
         ? isPaid
           ? " ✅ Pago"
           : isCharged
@@ -59,7 +98,34 @@ export function buildReportBlocks(rows: ReportRow[], options: ReportTextOptions 
         : "";
       return `${row.clientName} – ${row.quantity}${statusTag}`;
     };
-    if (includePhones) {
+
+    if (groupByPaymentStatus) {
+      const paidRows = group.filter(isRowPaid);
+      const pendingRows = group.filter(r => !isRowPaid(r));
+      const blocks: string[] = [header];
+
+      if (paidRows.length > 0) {
+        if (includePhones) {
+          const lines = ["Pago"];
+          for (const row of paidRows) lines.push(`${formatClient(row)}\n${row.phone}`);
+          blocks.push(lines.join("\n\n"));
+        } else {
+          blocks.push(`Pago\n\n${paidRows.map(formatClient).join("\n")}`);
+        }
+      }
+
+      if (pendingRows.length > 0) {
+        if (includePhones) {
+          const lines = ["Pagamento pendente"];
+          for (const row of pendingRows) lines.push(`${formatClient(row)}\n${row.phone}`);
+          blocks.push(lines.join("\n\n"));
+        } else {
+          blocks.push(`Pagamento pendente\n\n${pendingRows.map(formatClient).join("\n")}`);
+        }
+      }
+
+      sections.push(blocks.join("\n\n"));
+    } else if (includePhones) {
       const lines = [header];
       for (const row of group) lines.push(`${formatClient(row)}\n${row.phone}`);
       sections.push(lines.join("\n\n"));
@@ -110,6 +176,8 @@ export type GroupUpdateOptions = {
   showPaymentStatus?: boolean;
   showDescription?: boolean;
   includePix?: boolean;
+  /** Divide a lista em blocos "Pago" e "Pagamento pendente" mantendo a ordem original. */
+  groupByPaymentStatus?: boolean;
   intro: string;
   closing: string;
 };
@@ -123,6 +191,7 @@ export const defaultGroupUpdateOptions: GroupUpdateOptions = {
   showPaymentStatus: false,
   showDescription: true,
   includePix: false,
+  groupByPaymentStatus: false,
   intro: "Atualização da lista",
   closing: "",
 };
@@ -141,6 +210,7 @@ export function buildGroupUpdateText(input: {
   productName: string;
   productPriceCents?: number | null;
   productDescription?: string | null;
+  productStock?: number | null;
   rows: ReportRow[];
   goalPieces?: number | null;
   options?: Partial<GroupUpdateOptions>;
@@ -174,9 +244,9 @@ export function buildGroupUpdateText(input: {
     parts.push("Ainda sem quantidades registradas.");
   } else if (options.showNames) {
     const formatClient = (row: ReportRow) => {
-      const isPaid = Boolean(row.isPaid) || row.status === "paid" || (row.paidCents !== undefined && row.paidCents >= row.totalCents && row.totalCents > 0);
+      const isPaid = isRowPaid(row);
       const isCharged = Boolean(row.isCharged);
-      const statusTag = options.showPaymentStatus
+      const statusTag = options.showPaymentStatus && !options.groupByPaymentStatus
         ? isPaid
           ? " ✅ Pago"
           : isCharged
@@ -186,22 +256,39 @@ export function buildGroupUpdateText(input: {
       const phoneLine = options.showPhones && row.phone ? `\n${row.phone}` : "";
       return `${row.clientName} – ${row.quantity}${statusTag}${phoneLine}`;
     };
-    parts.push(input.rows.map(formatClient).join("\n"));
+
+    if (options.groupByPaymentStatus) {
+      const paidRows = input.rows.filter(isRowPaid);
+      const pendingRows = input.rows.filter(r => !isRowPaid(r));
+      const groupParts: string[] = [];
+
+      if (paidRows.length > 0) {
+        groupParts.push(`Pago\n\n${paidRows.map(formatClient).join("\n")}`);
+      }
+      if (pendingRows.length > 0) {
+        groupParts.push(`Pagamento pendente\n\n${pendingRows.map(formatClient).join("\n")}`);
+      }
+      parts.push(groupParts.join("\n\n"));
+    } else {
+      parts.push(input.rows.map(formatClient).join("\n"));
+    }
   }
 
   // 5. Totais e Resumo de status
   const footer: string[] = [];
   if (options.showTotals) {
+    const summary = reportPieceSummary(input.rows, input.productStock ?? input.goalPieces);
+    footer.push(formatPieceSummaryLines(summary).join("\n"));
     footer.push(`Total de peças: ${totals.pieces}\nTotal de clientes: ${totals.clients}`);
   }
-  if (options.showPaymentStatus && input.rows.length > 0) {
-    const paidCount = input.rows.filter(r => Boolean(r.isPaid) || r.status === "paid" || (r.paidCents !== undefined && r.paidCents >= r.totalCents && r.totalCents > 0)).length;
-    const chargedCount = input.rows.filter(r => Boolean(r.isCharged) && !r.isPaid && r.status !== "paid").length;
+  if (options.showPaymentStatus && input.rows.length > 0 && !options.groupByPaymentStatus) {
+    const paidCount = input.rows.filter(isRowPaid).length;
+    const chargedCount = input.rows.filter(r => Boolean(r.isCharged) && !isRowPaid(r)).length;
     const pendingCount = Math.max(0, input.rows.length - paidCount - chargedCount);
     footer.push(`Status: ${paidCount} pago(s) ✅ · ${chargedCount} cobrado(s) 📲 · ${pendingCount} pendente(s) ⏳`);
   }
   if (options.showProgress) {
-    const progress = computeProgress(totals.pieces, input.goalPieces);
+    const progress = computeProgress(totals.pieces, input.goalPieces ?? input.productStock);
     if (progress) footer.push(progressLine(progress));
   }
   if (footer.length) parts.push(footer.join("\n"));

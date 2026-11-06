@@ -254,7 +254,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
   const goal = Number(goalInput) >= 1 ? Math.floor(Number(goalInput)) : null;
   const progress = computeProgress(totals.pieces, goal);
   const destination = destinations.find((item: any) => String(item.id) === destinationId && item.active) ?? null;
-  const generated = useMemo(() => (product ? buildGroupUpdateText({ productName: product.name, productPriceCents: product.priceCents, productDescription: product.description, rows, goalPieces: goal, options }) : ""), [product, rows, goal, options]);
+  const generated = useMemo(() => (product ? buildGroupUpdateText({ productName: product.name, productPriceCents: product.priceCents, productDescription: product.description, productStock: product.stock ?? null, rows, goalPieces: goal, options }) : ""), [product, rows, goal, options]);
   const stale = Boolean(override && override.base !== generated);
   const text = override ? override.text : generated;
   const set = (patch: Partial<GroupUpdateOptions>) => setOptions(current => ({ ...current, ...patch }));
@@ -315,6 +315,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
             <p className="mc-note">Pedido registrado é a quantidade atribuída à cliente — não significa que o lote já foi pedido ao fornecedor.</p>
             <div className="mc-checks">
               <Check2 checked={options.showPaymentStatus ?? true} onChange={value => set({ showPaymentStatus: value })}>Exibir status de pagamento (✅ Pago, 📲 Cobrado)</Check2>
+              <Check2 checked={Boolean(options.groupByPaymentStatus)} onChange={value => set({ groupByPaymentStatus: value })}>Dividir lista por status (Pago / Pagamento pendente)</Check2>
               <Check2 checked={options.includePix ?? false} onChange={value => set({ includePix: value })}>Incluir Chave Pix no final</Check2>
               <Check2 checked={options.showNames} onChange={value => set({ showNames: value })}>Mostrar nomes e quantidades</Check2>
               <Check2 checked={options.showPrices} onChange={value => set({ showPrices: value })}>Mostrar preço</Check2>
@@ -590,6 +591,7 @@ function ReportTab({ products, destinations, record }: { products: any[]; destin
   const [to, setTo] = useState("");
   const [includePhones, setIncludePhones] = useState(true);
   const [includePrices, setIncludePrices] = useState(true);
+  const [groupByPaymentStatus, setGroupByPaymentStatus] = useState(false);
   const [destinationId, setDestinationId] = useState("");
   const [override, setOverride] = useState<{ text: string; base: string } | null>(null);
   const [key, setKey] = useState(() => newKey("report"));
@@ -601,11 +603,11 @@ function ReportTab({ products, destinations, record }: { products: any[]; destin
   const productIds = Array.from(new Set(rows.map(row => row.productId)));
   const photoProduct = productIds.length === 1 ? products.find(item => item.id === productIds[0]) ?? null : null;
   const destination = destinations.find(item => String(item.id) === destinationId && item.active) ?? null;
-  const generated = useMemo(() => buildReportText(rows, { includePhones, includePrices }), [rows, includePhones, includePrices]);
+  const generated = useMemo(() => buildReportText(rows, { includePhones, includePrices, groupByPaymentStatus, productStock: photoProduct?.stock ?? null }), [rows, includePhones, includePrices, groupByPaymentStatus, photoProduct]);
   const stale = Boolean(override && override.base !== generated);
   const text = override ? override.text : generated;
 
-  useEffect(() => { setKey(newKey("report")); setStatus(null); setOverride(null); }, [productId, from, to, includePhones, includePrices]);
+  useEffect(() => { setKey(newKey("report")); setStatus(null); setOverride(null); }, [productId, from, to, includePhones, includePrices, groupByPaymentStatus]);
 
   const act = async (next: Exclude<ActionStatus, "api_confirmed">) => {
     const result = await record({ idempotencyKey: key, kind: "report", status: next, destinationType: destination ? "group" : "none", destinationId: destination?.id ?? null, productId: productId ? Number(productId) : null, title: productId ? `Relatório — ${products.find(item => String(item.id) === productId)?.name ?? "produto"}` : "Relatório geral", message: (text || "(vazio)").slice(0, 50000) });
@@ -632,6 +634,7 @@ function ReportTab({ products, destinations, record }: { products: any[]; destin
         <div className="mc-checks">
           <Check2 checked={includePhones} onChange={setIncludePhones}>Incluir telefones (útil na separação; evite em grupo público)</Check2>
           <Check2 checked={includePrices} onChange={setIncludePrices}>Incluir preço unitário histórico</Check2>
+          <Check2 checked={groupByPaymentStatus} onChange={setGroupByPaymentStatus}>Dividir lista por status (Pago / Pagamento pendente)</Check2>
         </div>
         <div className="mc-stats">
           <span><strong>{totals.clients}</strong> clientes</span>

@@ -82,6 +82,38 @@ describe("relatório e atualização de lista", () => {
     expect(computeProgress(3, 12)).toEqual({ total: 3, goal: 12, remaining: 9, percent: 25, reached: false });
     expect(computeProgress(15, 12)).toMatchObject({ remaining: 0, percent: 100, reached: true });
   });
+
+  it("gera o relatório de peças no final da lista com estoque e peças pagas/a receber", () => {
+    // 107 peças pagas, 16 peças pendentes, estoque total 150 -> 27 falta vender
+    const customRows: ReportRow[] = [
+      row({ clientName: "Cliente 01", quantity: 100, isPaid: true }),
+      row({ clientName: "Cliente 02", quantity: 7, isPaid: true }),
+      row({ clientName: "Cliente 03", quantity: 10, isPaid: false }),
+      row({ clientName: "Cliente 04", quantity: 6, isPaid: false }),
+    ];
+    const text = buildGroupUpdateText({
+      productName: "Vestido",
+      rows: customRows,
+      productStock: 150,
+    });
+    expect(text).toContain("107 Peças\n16 faltam receber\n27 falta vender");
+  });
+
+  it("divide a lista em 'Pago' e 'Pagamento pendente' preservando a ordem original quando selecionado", () => {
+    const mixedRows: ReportRow[] = [
+      row({ orderId: 1, clientName: "Cliente 01", quantity: 2, isPaid: true }),
+      row({ orderId: 2, clientName: "Cliente 02", quantity: 1, isPaid: false }),
+      row({ orderId: 3, clientName: "Cliente 03", quantity: 3, isPaid: true }),
+      row({ orderId: 4, clientName: "Cliente 04", quantity: 2, isPaid: false }),
+    ];
+    const text = buildGroupUpdateText({
+      productName: "Vestido",
+      rows: mixedRows,
+      options: { groupByPaymentStatus: true },
+    });
+    expect(text).toContain("Pago\n\nCliente 01 – 2\nCliente 03 – 3");
+    expect(text).toContain("Pagamento pendente\n\nCliente 02 – 1\nCliente 04 – 2");
+  });
 });
 
 describe("cobranças: destinatários e saldos", () => {

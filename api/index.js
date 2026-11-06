@@ -66,6 +66,7 @@ var products = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     name: varchar("name", { length: 160 }).notNull(),
     priceCents: int("priceCents").notNull(),
+    stock: int("stock").default(0),
     category: varchar("category", { length: 120 }),
     description: text("description"),
     imageUrl: text("imageUrl"),
@@ -394,6 +395,7 @@ function reviveDates(raw) {
     messageActions: (raw?.messageActions ?? []).map((a) => ({ ...a, createdAt: toDate(a.createdAt), updatedAt: toDate(a.updatedAt) })),
     products: (raw?.products ?? []).map((p) => ({
       ...p,
+      stock: typeof p.stock === "number" ? p.stock : Number(p.stock) || 0,
       createdAt: toDate(p.createdAt),
       updatedAt: toDate(p.updatedAt)
     })),
@@ -902,6 +904,80 @@ async function saveStore() {
   }
 }
 
+// shared/search.ts
+function normalizeSearch(text2) {
+  if (!text2) return "";
+  return text2.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+function levenshteinDistance(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) {
+    prev[j] = j;
+  }
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    const aChar = a.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j++) {
+      const cost = aChar === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,
+        // inserção
+        prev[j] + 1,
+        // deleção
+        prev[j - 1] + cost
+        // substituição
+      );
+    }
+    const temp = prev;
+    prev = curr;
+    curr = temp;
+  }
+  return prev[n];
+}
+function matchClient(client, rawQuery) {
+  if (!rawQuery) return true;
+  const query = normalizeSearch(rawQuery);
+  if (!query) return true;
+  const rawPhone = client.phone || "";
+  const phoneDigits = rawPhone.replace(/\D/g, "");
+  const queryDigits = query.replace(/\D/g, "");
+  if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) {
+    return true;
+  }
+  const name = normalizeSearch(client.name);
+  if (!name) return false;
+  if (name.includes(query)) {
+    return true;
+  }
+  if (client.notes) {
+    const notes = normalizeSearch(client.notes);
+    if (notes.includes(query)) return true;
+  }
+  const queryTokens = query.split(/[\s,;.-]+/).filter(Boolean);
+  const nameTokens = name.split(/[\s,;.-]+/).filter(Boolean);
+  if (queryTokens.length === 0) return true;
+  const allTokensMatch = queryTokens.every((qTok) => {
+    for (const nTok of nameTokens) {
+      if (nTok.includes(qTok) || qTok.includes(nTok)) {
+        return true;
+      }
+      if (qTok.length >= 3 && nTok.length >= 3) {
+        const maxDist = qTok.length >= 6 ? 2 : 1;
+        if (levenshteinDistance(qTok, nTok) <= maxDist) {
+          return true;
+        }
+      }
+    }
+    return false;
+  });
+  return allTokensMatch;
+}
+
 // shared/vcf.ts
 function normalizePhone(phone) {
   if (!phone) return "";
@@ -1112,6 +1188,7 @@ async function listProducts(search) {
 }
 async function createProduct(actorUserId, input) {
   const db = await getDb();
+  const stock = typeof input.stock === "number" ? Math.max(0, input.stock) : 0;
   if (!db) {
     const store = getStore();
     store.counters.products += 1;
@@ -1121,6 +1198,7 @@ async function createProduct(actorUserId, input) {
       id: id2,
       name: input.name.trim(),
       priceCents: input.priceCents,
+      stock,
       category: input.category?.trim() || null,
       description: input.description?.trim() || null,
       imageUrl: input.imageUrl?.trim() || null,
@@ -1128,19 +1206,20 @@ async function createProduct(actorUserId, input) {
       createdAt: now,
       updatedAt: now
     });
-    await writeAudit(null, actorUserId, "create", "product", String(id2), { name: input.name });
+    await writeAudit(null, actorUserId, "create", "product", String(id2), { name: input.name, stock });
     await saveStore();
     return { id: id2 };
   }
   const [result] = await db.insert(products).values({
     name: input.name.trim(),
     priceCents: input.priceCents,
+    stock,
     category: input.category?.trim() || null,
     description: input.description?.trim() || null,
     imageUrl: input.imageUrl?.trim() || null
   });
   const id = Number(result.insertId);
-  await writeAudit(db, actorUserId, "create", "product", String(id), { name: input.name });
+  await writeAudit(db, actorUserId, "create", "product", String(id), { name: input.name, stock });
   return { id };
 }
 async function updateProduct(actorUserId, id, input) {
@@ -1151,6 +1230,7 @@ async function updateProduct(actorUserId, id, input) {
     if (!product) throw new Error("Produto n\xE3o encontrado");
     if (input.name !== void 0) product.name = input.name.trim();
     if (input.priceCents !== void 0) product.priceCents = input.priceCents;
+    if (input.stock !== void 0) product.stock = Math.max(0, input.stock);
     if (input.category !== void 0) product.category = input.category.trim() || null;
     if (input.description !== void 0) product.description = input.description.trim() || null;
     if (input.imageUrl !== void 0) product.imageUrl = input.imageUrl.trim() || null;
@@ -1163,6 +1243,7 @@ async function updateProduct(actorUserId, id, input) {
   await db.update(products).set({
     ...input.name !== void 0 ? { name: input.name.trim() } : {},
     ...input.priceCents !== void 0 ? { priceCents: input.priceCents } : {},
+    ...input.stock !== void 0 ? { stock: Math.max(0, input.stock) } : {},
     ...input.category !== void 0 ? { category: input.category.trim() || null } : {},
     ...input.description !== void 0 ? { description: input.description.trim() || null } : {},
     ...input.imageUrl !== void 0 ? { imageUrl: input.imageUrl.trim() || null } : {},
@@ -1175,12 +1256,10 @@ async function listClients(search) {
   const db = await getDb();
   if (!db) {
     const store = getStore();
-    const q = search?.trim().toLowerCase();
-    return [...store.clients].filter((c) => !q || c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return [...store.clients].filter((c) => matchClient(c, search)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
-  if (!search?.trim()) return db.select().from(clients).orderBy(desc(clients.createdAt));
-  const term = `%${search.trim()}%`;
-  return db.select().from(clients).where(or(like(clients.name, term), like(clients.phone, term))).orderBy(desc(clients.createdAt));
+  const all = await db.select().from(clients).orderBy(desc(clients.createdAt));
+  return all.filter((c) => matchClient(c, search));
 }
 async function createClient(actorUserId, input) {
   const db = await getDb();
@@ -3069,15 +3148,15 @@ var appRouter = router({
   products: router({
     list: adminProcedure.input(z2.object({ search: z2.string().optional() })).query(({ input }) => listProducts(input.search)),
     detail: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).query(({ input }) => getProductDetail(input.id)),
-    create: adminProcedure.input(z2.object({ name: z2.string().trim().min(1).default("Novo Produto"), priceCents: money.default(0), category: z2.string().optional(), description: z2.string().optional(), imageUrl: z2.string().optional() })).mutation(({ ctx, input }) => createProduct(ctx.user.id, input)),
-    update: adminProcedure.input(z2.object({ id: z2.number().int().positive(), name: z2.string().trim().min(1).optional(), priceCents: positiveMoney.optional(), category: z2.string().optional(), description: z2.string().optional(), imageUrl: z2.string().optional(), active: z2.boolean().optional() })).mutation(({ ctx, input }) => {
+    create: adminProcedure.input(z2.object({ name: z2.string().trim().min(1).default("Novo Produto"), priceCents: money.default(0), stock: z2.number().int().min(0).optional(), category: z2.string().optional(), description: z2.string().optional(), imageUrl: z2.string().optional() })).mutation(({ ctx, input }) => createProduct(ctx.user.id, input)),
+    update: adminProcedure.input(z2.object({ id: z2.number().int().positive(), name: z2.string().trim().min(1).optional(), priceCents: positiveMoney.optional(), stock: z2.number().int().min(0).optional(), category: z2.string().optional(), description: z2.string().optional(), imageUrl: z2.string().optional(), active: z2.boolean().optional() })).mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return updateProduct(ctx.user.id, id, data);
     }),
     duplicate: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const product = await getProductDetail(input.id);
       if (!product) throw new Error("Produto n\xE3o encontrado");
-      return createProduct(ctx.user.id, { name: `${product.product.name} (c\xF3pia)`, priceCents: product.product.priceCents, category: product.product.category ?? void 0, description: product.product.description ?? void 0, imageUrl: product.product.imageUrl ?? void 0 });
+      return createProduct(ctx.user.id, { name: `${product.product.name} (c\xF3pia)`, priceCents: product.product.priceCents, stock: product.product.stock ?? 0, category: product.product.category ?? void 0, description: product.product.description ?? void 0, imageUrl: product.product.imageUrl ?? void 0 });
     })
   }),
   clients: router({

@@ -16,6 +16,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { getStore, pushStoreToFirestore, saveStore } from "./firebaseStore";
+import { matchClient } from "../shared/search";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -240,8 +241,9 @@ export async function listProducts(search?: string) {
   return db.select().from(products).where(like(products.name, `%${search.trim()}%`)).orderBy(desc(products.createdAt));
 }
 
-export async function createProduct(actorUserId: number, input: { name: string; priceCents: number; category?: string; description?: string; imageUrl?: string }) {
+export async function createProduct(actorUserId: number, input: { name: string; priceCents: number; stock?: number; category?: string; description?: string; imageUrl?: string }) {
   const db = await getDb();
+  const stock = typeof input.stock === "number" ? Math.max(0, input.stock) : 0;
   if (!db) {
     const store = getStore();
     store.counters.products += 1;
@@ -251,6 +253,7 @@ export async function createProduct(actorUserId: number, input: { name: string; 
       id,
       name: input.name.trim(),
       priceCents: input.priceCents,
+      stock,
       category: input.category?.trim() || null,
       description: input.description?.trim() || null,
       imageUrl: input.imageUrl?.trim() || null,
@@ -258,23 +261,24 @@ export async function createProduct(actorUserId: number, input: { name: string; 
       createdAt: now,
       updatedAt: now,
     });
-    await writeAudit(null, actorUserId, "create", "product", String(id), { name: input.name });
+    await writeAudit(null, actorUserId, "create", "product", String(id), { name: input.name, stock });
     await saveStore();
     return { id };
   }
   const [result] = await db.insert(products).values({
     name: input.name.trim(),
     priceCents: input.priceCents,
+    stock,
     category: input.category?.trim() || null,
     description: input.description?.trim() || null,
     imageUrl: input.imageUrl?.trim() || null,
   });
   const id = Number((result as any).insertId);
-  await writeAudit(db, actorUserId, "create", "product", String(id), { name: input.name });
+  await writeAudit(db, actorUserId, "create", "product", String(id), { name: input.name, stock });
   return { id };
 }
 
-export async function updateProduct(actorUserId: number, id: number, input: { name?: string; priceCents?: number; category?: string; description?: string; imageUrl?: string; active?: boolean }) {
+export async function updateProduct(actorUserId: number, id: number, input: { name?: string; priceCents?: number; stock?: number; category?: string; description?: string; imageUrl?: string; active?: boolean }) {
   const db = await getDb();
   if (!db) {
     const store = getStore();
@@ -282,6 +286,7 @@ export async function updateProduct(actorUserId: number, id: number, input: { na
     if (!product) throw new Error("Produto não encontrado");
     if (input.name !== undefined) product.name = input.name.trim();
     if (input.priceCents !== undefined) product.priceCents = input.priceCents;
+    if (input.stock !== undefined) product.stock = Math.max(0, input.stock);
     if (input.category !== undefined) product.category = input.category.trim() || null;
     if (input.description !== undefined) product.description = input.description.trim() || null;
     if (input.imageUrl !== undefined) product.imageUrl = input.imageUrl.trim() || null;
@@ -294,6 +299,7 @@ export async function updateProduct(actorUserId: number, id: number, input: { na
   await db.update(products).set({
     ...(input.name !== undefined ? { name: input.name.trim() } : {}),
     ...(input.priceCents !== undefined ? { priceCents: input.priceCents } : {}),
+    ...(input.stock !== undefined ? { stock: Math.max(0, input.stock) } : {}),
     ...(input.category !== undefined ? { category: input.category.trim() || null } : {}),
     ...(input.description !== undefined ? { description: input.description.trim() || null } : {}),
     ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl.trim() || null } : {}),
@@ -307,14 +313,12 @@ export async function listClients(search?: string) {
   const db = await getDb();
   if (!db) {
     const store = getStore();
-    const q = search?.trim().toLowerCase();
     return [...store.clients]
-      .filter(c => !q || c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q))
+      .filter(c => matchClient(c, search))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
-  if (!search?.trim()) return db.select().from(clients).orderBy(desc(clients.createdAt));
-  const term = `%${search.trim()}%`;
-  return db.select().from(clients).where(or(like(clients.name, term), like(clients.phone, term))).orderBy(desc(clients.createdAt));
+  const all = await db.select().from(clients).orderBy(desc(clients.createdAt));
+  return all.filter(c => matchClient(c, search));
 }
 
 export async function createClient(actorUserId: number, input: { name: string; phone: string; notes?: string }) {

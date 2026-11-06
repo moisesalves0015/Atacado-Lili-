@@ -106,15 +106,15 @@ export const appRouter = router({
   products: router({
     list: adminProcedure.input(z.object({ search: z.string().optional() })).query(({ input }) => listProducts(input.search)),
     detail: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => getProductDetail(input.id)),
-    create: adminProcedure.input(z.object({ name: z.string().trim().min(1).default("Novo Produto"), priceCents: money.default(0), category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional() })).mutation(({ ctx, input }) => createProduct(ctx.user.id, input)),
-    update: adminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).optional(), priceCents: positiveMoney.optional(), category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional(), active: z.boolean().optional() })).mutation(({ ctx, input }) => {
+    create: adminProcedure.input(z.object({ name: z.string().trim().min(1).default("Novo Produto"), priceCents: money.default(0), stock: z.number().int().min(0).optional(), category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional() })).mutation(({ ctx, input }) => createProduct(ctx.user.id, input)),
+    update: adminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).optional(), priceCents: positiveMoney.optional(), stock: z.number().int().min(0).optional(), category: z.string().optional(), description: z.string().optional(), imageUrl: z.string().optional(), active: z.boolean().optional() })).mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return updateProduct(ctx.user.id, id, data);
     }),
     duplicate: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const product = await getProductDetail(input.id);
       if (!product) throw new Error("Produto não encontrado");
-      return createProduct(ctx.user.id, { name: `${product.product.name} (cópia)`, priceCents: product.product.priceCents, category: product.product.category ?? undefined, description: product.product.description ?? undefined, imageUrl: product.product.imageUrl ?? undefined });
+      return createProduct(ctx.user.id, { name: `${product.product.name} (cópia)`, priceCents: product.product.priceCents, stock: (product.product as any).stock ?? 0, category: product.product.category ?? undefined, description: product.product.description ?? undefined, imageUrl: product.product.imageUrl ?? undefined });
     }),
   }),
 
