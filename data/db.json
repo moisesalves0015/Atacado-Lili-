@@ -1,14 +1,14 @@
 {
-  "updatedAt": 1793842999729,
+  "updatedAt": 1793925259748,
   "counters": {
     "products": 14,
-    "clients": 2351,
+    "clients": 2358,
     "orders": 67,
     "orderItems": 68,
     "payments": 3,
     "chargeTemplates": 7,
     "charges": 18,
-    "auditLogs": 160,
+    "auditLogs": 166,
     "messageDestinations": 1,
     "messageLots": 0,
     "messageReminders": 0,
@@ -24191,6 +24191,26 @@
       "active": true,
       "createdAt": "2026-11-05T00:05:06.485Z",
       "updatedAt": "2026-11-05T00:05:06.485Z"
+    },
+    {
+      "id": 2357,
+      "name": "Cliente Teste Privacidade 1793925259726",
+      "phone": "(65) 95383874",
+      "phoneNormalized": "556595383874",
+      "notes": null,
+      "active": true,
+      "createdAt": "2026-11-06T00:34:19.726Z",
+      "updatedAt": "2026-11-06T00:34:19.726Z"
+    },
+    {
+      "id": 2358,
+      "name": "Cliente Teste Privacidade 1793925259726 2",
+      "phone": "(65) 96653780",
+      "phoneNormalized": "556596653780",
+      "notes": null,
+      "active": true,
+      "createdAt": "2026-11-06T00:34:19.748Z",
+      "updatedAt": "2026-11-06T00:34:19.748Z"
     }
   ],
   "orders": [
@@ -25917,6 +25937,60 @@
   ],
   "auditLogs": [
     {
+      "id": 166,
+      "actorUserId": 777,
+      "action": "import",
+      "entityType": "client",
+      "entityId": "bulk",
+      "metadata": "{\"count\":1,\"duplicates\":0,\"invalid\":0,\"source\":\"device_contact\"}",
+      "createdAt": "2026-11-06T00:34:19.748Z"
+    },
+    {
+      "id": 165,
+      "actorUserId": 777,
+      "action": "create",
+      "entityType": "client",
+      "entityId": "2357",
+      "metadata": "{\"hasPhone\":true}",
+      "createdAt": "2026-11-06T00:34:19.726Z"
+    },
+    {
+      "id": 164,
+      "actorUserId": 999,
+      "action": "import",
+      "entityType": "client",
+      "entityId": "bulk",
+      "metadata": "{\"count\":2,\"duplicates\":0,\"invalid\":1,\"source\":\"vcf_import\"}",
+      "createdAt": "2026-11-06T00:34:19.698Z"
+    },
+    {
+      "id": 163,
+      "actorUserId": 999,
+      "action": "import",
+      "entityType": "client",
+      "entityId": "bulk",
+      "metadata": "{\"count\":1,\"duplicates\":1,\"invalid\":0,\"source\":\"device_contact\"}",
+      "createdAt": "2026-11-06T00:34:19.673Z"
+    },
+    {
+      "id": 162,
+      "actorUserId": 999,
+      "action": "import",
+      "entityType": "client",
+      "entityId": "bulk",
+      "metadata": "{\"count\":1,\"duplicates\":2,\"invalid\":0,\"source\":\"vcf_import\"}",
+      "createdAt": "2026-11-06T00:34:19.646Z"
+    },
+    {
+      "id": 161,
+      "actorUserId": 999,
+      "action": "create",
+      "entityType": "client",
+      "entityId": "2352",
+      "metadata": "{\"hasPhone\":true}",
+      "createdAt": "2026-11-06T00:34:19.627Z"
+    },
+    {
       "id": 160,
       "actorUserId": 1,
       "action": "whatsapp_opened",
@@ -26761,60 +26835,6 @@
       "entityId": "13",
       "metadata": "{\"name\":\"Vestido Midi Longo Fivela\"}",
       "createdAt": "2026-11-04T11:40:54.015Z"
-    },
-    {
-      "id": 66,
-      "actorUserId": 1,
-      "action": "create",
-      "entityType": "order",
-      "entityId": "35",
-      "metadata": "{\"code\":\"PV-2026-QF9WRL\",\"totalCents\":13200,\"itemCount\":1}",
-      "createdAt": "2026-11-04T11:36:54.010Z"
-    },
-    {
-      "id": 65,
-      "actorUserId": 1,
-      "action": "create",
-      "entityType": "order",
-      "entityId": "34",
-      "metadata": "{\"code\":\"PV-2026-U5NBPW\",\"totalCents\":9900,\"itemCount\":1}",
-      "createdAt": "2026-11-04T11:36:53.542Z"
-    },
-    {
-      "id": 64,
-      "actorUserId": 1,
-      "action": "create",
-      "entityType": "order",
-      "entityId": "33",
-      "metadata": "{\"code\":\"PV-2026-FU9_FO\",\"totalCents\":19800,\"itemCount\":1}",
-      "createdAt": "2026-11-04T11:36:53.020Z"
-    },
-    {
-      "id": 63,
-      "actorUserId": 1,
-      "action": "create",
-      "entityType": "order",
-      "entityId": "32",
-      "metadata": "{\"code\":\"PV-2026-GCT0OC\",\"totalCents\":9900,\"itemCount\":1}",
-      "createdAt": "2026-11-04T11:36:52.570Z"
-    },
-    {
-      "id": 62,
-      "actorUserId": 1,
-      "action": "create",
-      "entityType": "product",
-      "entityId": "12",
-      "metadata": "{\"name\":\"Vestido Mary\"}",
-      "createdAt": "2026-11-04T11:34:05.834Z"
-    },
-    {
-      "id": 61,
-      "actorUserId": 1,
-      "action": "create",
-      "entityType": "order",
-      "entityId": "31",
-      "metadata": "{\"code\":\"PV-2026-SVCHU8\",\"totalCents\":9900,\"itemCount\":1}",
-      "createdAt": "2026-11-04T11:32:34.548Z"
     }
   ]
 }

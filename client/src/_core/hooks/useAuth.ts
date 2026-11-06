@@ -23,6 +23,9 @@ export function useAuth(options?: UseAuthOptions) {
           localStorage.setItem("vendaatacado-token", data.token);
         }
       } catch {}
+      if ((data as any)?.user) {
+        utils.auth.me.setData(undefined, (data as any).user);
+      }
       await utils.auth.me.invalidate();
       await meQuery.refetch();
     },
