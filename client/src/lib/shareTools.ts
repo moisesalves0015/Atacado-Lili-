@@ -149,6 +149,12 @@ async function imageUrlToPngBlob(imageUrl: string): Promise<Blob> {
 }
 
 /**
+ * Limite oficial do próprio WhatsApp para legenda de foto (1.024 caracteres).
+ * Mensagens de texto normais (sem foto anexada) aceitam até 65.536 caracteres.
+ */
+export const WA_PHOTO_CAPTION_LIMIT = 1020;
+
+/**
  * Copia o texto e inicia o compartilhamento no WhatsApp (com foto + legenda quando possível).
  * Retorna `true` quando o compartilhamento foi INICIADO (WhatsApp/folha de compartilhamento aberta);
  * isso nunca significa que a mensagem foi enviada. Retorna `false` se a usuária cancelou.
@@ -158,66 +164,87 @@ async function imageUrlToPngBlob(imageUrl: string): Promise<Blob> {
 export async function shareReportOnWhatsApp(
   text: string,
   product?: any,
-  options: { targetUrl?: string; phone?: string } = {}
+  options: { targetUrl?: string; phone?: string; textOnly?: boolean; forcePhotoCaption?: boolean } = {}
 ): Promise<boolean> {
   if (!text) return false;
 
   // Always copy the full report text synchronously first (keeps user gesture intact)
   copyTextSync(text);
 
-  if (product?.imageUrl) {
-    try {
-      let file = dataUrlToFileSync(product.imageUrl, product.name || "produto");
-      if (!file) {
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const cleanPhone = options.phone ? toWaPhone(options.phone) : "";
+  const exceedsPhotoCaptionLimit = text.length > WA_PHOTO_CAPTION_LIMIT;
+
+  if (product?.imageUrl && !options.textOnly) {
+    // Se o texto ultrapassa 1.020 caracteres, o próprio WhatsApp corta legendas de foto em 1.024 caracteres.
+    // Nesse caso (a menos que a usuária peça explicitamente foto + legenda cortada), priorizamos enviar
+    // o texto 100% completo sem corte!
+    if (exceedsPhotoCaptionLimit && !options.forcePhotoCaption) {
+      toast.info(
+        `O WhatsApp limita legendas de foto a 1.024 caracteres (este relatório tem ${text.length}). Enviando como mensagem de texto para ir 100% completo sem cortes!`
+      );
+      if (isMobile && !cleanPhone && !options.targetUrl && typeof navigator.share === "function") {
         try {
-          const blob = await imageUrlToBlob(product.imageUrl);
-          const ext = blob.type.includes("png") ? "png" : "jpg";
-          const safeName = (product.name || "produto").toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "produto";
-          file = new File([blob], `${safeName}.${ext}`, { type: blob.type || "image/jpeg" });
-        } catch (fetchErr) {
-          console.warn("[Share] Não foi possível carregar o arquivo da imagem:", fetchErr);
+          await navigator.share({ text });
+          return true;
+        } catch (err: any) {
+          if (err?.name === "AbortError") return false;
         }
       }
-
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (file && isMobile && typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-        // IMPORTANT: Do NOT pass `title` here; passing only `{ files, text }` ensures WhatsApp
-        // uses `text` (the full multi-line report) as the photo caption (`legenda`).
-        await navigator.share({
-          files: [file],
-          text,
-        });
-        return true;
-      }
-
-      // Desktop fallback: copy PNG image to clipboard and open WhatsApp with the full report text
+    } else {
       try {
-        if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-          const pngBlob = await imageUrlToPngBlob(product.imageUrl);
-          await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
-          toast.success("Texto preenchido no WhatsApp e foto copiada! Aperte Ctrl+V na conversa para colar a foto com legenda.");
+        let file = dataUrlToFileSync(product.imageUrl, product.name || "produto");
+        if (!file) {
+          try {
+            const blob = await imageUrlToBlob(product.imageUrl);
+            const ext = blob.type.includes("png") ? "png" : "jpg";
+            const safeName = (product.name || "produto").toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "produto";
+            file = new File([blob], `${safeName}.${ext}`, { type: blob.type || "image/jpeg" });
+          } catch (fetchErr) {
+            console.warn("[Share] Não foi possível carregar o arquivo da imagem:", fetchErr);
+          }
         }
-      } catch {
-        // Ignore clipboard image error
+
+        if (file && isMobile && typeof navigator.share === "function" && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+          // IMPORTANT: Do NOT pass `title` here; passing only `{ files, text }` ensures WhatsApp
+          // uses `text` (the full multi-line report) as the photo caption (`legenda`).
+          await navigator.share({
+            files: [file],
+            text,
+          });
+          return true;
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError") return false;
       }
+    }
+  }
+
+  // No celular (sem número fixo nem link de convite), usa o compartilhamento nativo de texto do aparelho.
+  // Isso envia o texto direto pela memória para o WhatsApp (até 65.536 caracteres), sem sofrer corte de URL!
+  if (isMobile && !cleanPhone && !options.targetUrl && typeof navigator.share === "function") {
+    try {
+      await navigator.share({ text });
+      return true;
     } catch (err: any) {
       if (err?.name === "AbortError") return false;
     }
   }
 
-  const cleanPhone = options.phone ? toWaPhone(options.phone) : "";
+  // Garantir que o texto completo continue na área de transferência para Ctrl+V se necessário
+  copyTextSync(text);
 
   // SE FOR COBRANÇA INDIVIDUAL (tem telefone de cliente cadastrado):
   // Abre DIRETO na conversa com a cliente no WhatsApp
   if (cleanPhone) {
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+    const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
     window.open(waUrl, "_blank", "noopener,noreferrer");
     return true;
   }
 
   let waUrl = options.targetUrl;
   if (!waUrl) {
-    waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   }
 
   window.open(waUrl, "_blank", "noopener,noreferrer");

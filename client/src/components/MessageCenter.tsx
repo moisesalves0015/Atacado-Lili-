@@ -261,7 +261,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
 
   const act = async (next: Exclude<ActionStatus, "api_confirmed">) => {
     if (!product) return null;
-    const result = await record({ idempotencyKey: key, kind: "group_update", status: next, destinationType: destination ? "group" : "none", destinationId: destination?.id ?? null, productId: product.id, reminderId: reminderId ?? null, title: `Atualização — ${product.name}`, message: text.slice(0, 2000) });
+    const result = await record({ idempotencyKey: key, kind: "group_update", status: next, destinationType: destination ? "group" : "none", destinationId: destination?.id ?? null, productId: product.id, reminderId: reminderId ?? null, title: `Atualização — ${product.name}`, message: text.slice(0, 50000) });
     if (result) setStatus(result);
     return result;
   };
@@ -343,7 +343,7 @@ function UpdateTab({ products, lots, destinations, productId, setProductId, dest
               </select>
             </Field>
             <textarea className="mc-preview" value={text} onChange={event => setOverride({ text: event.target.value, base: generated })} aria-label="Texto da mensagem" />
-            <div className="mc-meta"><span>{text.length} caracteres{text.length > 2000 ? " · o histórico guarda só os 2000 primeiros" : ""}</span>{override && <button type="button" onClick={() => setOverride(null)}>Descartar edição</button>}</div>
+            <div className="mc-meta"><span>{text.length} caracteres{text.length > 1020 && product?.imageUrl ? " · acima de 1.024 caract. (limite de legenda de foto do WhatsApp), será enviado como texto completo sem cortes" : ""}</span>{override && <button type="button" onClick={() => setOverride(null)}>Descartar edição</button>}</div>
             <div className="mc-actions">
               <Button variant="outline" size="sm" onClick={() => act("draft")} disabled={!text}>Salvar rascunho</Button>
               <Button variant="outline" size="sm" onClick={() => { copyTextSync(text); toast.success("Texto copiado"); void act("ready"); }} disabled={!text}><Copy size={14} /> Copiar</Button>
@@ -452,7 +452,7 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
   const utils = trpc.useUtils();
 
   const act = async (status: Exclude<ActionStatus, "api_confirmed">) => {
-    const result = await record({ idempotencyKey: card.key, kind: "charge", status, destinationType: "client", clientId: order.clientId ?? order.client.id, orderId: order.id, title: `Cobrança ${order.code} — ${order.client.name}`.slice(0, 200), message: text.slice(0, 2000), expectedBalanceCents: card.snapshot });
+    const result = await record({ idempotencyKey: card.key, kind: "charge", status, destinationType: "client", clientId: order.clientId ?? order.client.id, orderId: order.id, title: `Cobrança ${order.code} — ${order.client.name}`.slice(0, 200), message: text.slice(0, 50000), expectedBalanceCents: card.snapshot });
     if (result) onPatch({ status: result });
     return result;
   };
@@ -591,7 +591,7 @@ function ReportTab({ products, destinations, record }: { products: any[]; destin
   useEffect(() => { setKey(newKey("report")); setStatus(null); setOverride(null); }, [productId, from, to, includePhones, includePrices]);
 
   const act = async (next: Exclude<ActionStatus, "api_confirmed">) => {
-    const result = await record({ idempotencyKey: key, kind: "report", status: next, destinationType: destination ? "group" : "none", destinationId: destination?.id ?? null, productId: productId ? Number(productId) : null, title: productId ? `Relatório — ${products.find(item => String(item.id) === productId)?.name ?? "produto"}` : "Relatório geral", message: (text || "(vazio)").slice(0, 2000) });
+    const result = await record({ idempotencyKey: key, kind: "report", status: next, destinationType: destination ? "group" : "none", destinationId: destination?.id ?? null, productId: productId ? Number(productId) : null, title: productId ? `Relatório — ${products.find(item => String(item.id) === productId)?.name ?? "produto"}` : "Relatório geral", message: (text || "(vazio)").slice(0, 50000) });
     if (result) setStatus(result);
     return result;
   };

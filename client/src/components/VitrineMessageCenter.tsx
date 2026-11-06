@@ -317,7 +317,7 @@ function VitrineGroupUpdateFlow({
         destinationId: null,
         productId: selectedProductId,
         title: selectedProduct ? `Atualização — ${selectedProduct.name}` : "Atualização",
-        message: messageText.slice(0, 2000),
+        message: messageText.slice(0, 50000),
       });
       setStatus(res.action.status as ActionStatus);
       onActionRecorded();
@@ -557,7 +557,7 @@ function VitrineGroupUpdateFlow({
         <div className="vmc-message-card">
           <textarea
             className="vmc-message-textarea"
-            rows={5}
+            rows={8}
             value={messageText}
             onChange={e => setEditedText(e.target.value)}
             placeholder="A mensagem gerada aparecerá aqui..."
@@ -883,7 +883,7 @@ function VitrineChargeCardItem({
         orderId: order.id,
         clientId: Number(order.client?.id ?? order.clientId) || null,
         title: `Cobrança ${order.code} — ${order.client?.name ?? "Cliente"}`.slice(0, 200),
-        message: messageText.slice(0, 2000),
+        message: messageText.slice(0, 50000),
         expectedBalanceCents: balance,
       });
       setActionStatus(res.action.status as ActionStatus);
