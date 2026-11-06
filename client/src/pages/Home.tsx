@@ -956,11 +956,19 @@ function QuickSaleHomeView({
             type="button"
             className="mini-icon-btn"
             onClick={async () => {
-              if ("caches" in window) {
-                const keys = await caches.keys();
-                await Promise.all(keys.map(k => caches.delete(k)));
+              if (typeof (window as any).limparCacheApp === "function") {
+                await (window as any).limparCacheApp();
+              } else {
+                if ("caches" in window) {
+                  const keys = await caches.keys();
+                  await Promise.all(keys.map(k => caches.delete(k)));
+                }
+                if ("serviceWorker" in navigator) {
+                  const regs = await navigator.serviceWorker.getRegistrations();
+                  await Promise.all(regs.map(r => r.unregister()));
+                }
+                window.location.reload();
               }
-              window.location.reload();
             }}
             title="Atualizar versão e limpar cache"
           >
@@ -1389,7 +1397,7 @@ function ReportsView({ products, productId, setProductId, rows, loading }: any) 
 }
 
 function SettingsView({ user, audit, onExport, onSyncCloud, syncing }: any) {
-  return <div className="content-stack"><SectionHeader eyebrow="administração principal" title="Configurações" description="Acesso total, sincronização em nuvem entre aparelhos e exportação dos dados da operação." /><div className="settings-grid"><section className="panel"><div className="panel-heading"><div><div className="eyebrow">perfil atual</div><h3>Administradora</h3></div><span className="admin-pill">acesso total</span></div><div className="profile-box"><div className="avatar large">{(user.name ?? "A").charAt(0)}</div><div><strong>{user.name ?? "Administradora"}</strong><span>{user.email ?? "Conta Administradora"}</span><small>Dados compartilhados em todos os aparelhos conectados.</small></div></div><div className="settings-actions" style={{ display: "grid", gap: "10px" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}><Button onClick={onSyncCloud} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""} /> {syncing ? "Sincronizando..." : "Empurrar dados para o Banco (Nuvem)"}</Button><Button variant="outline" onClick={onExport}><Download size={16} /> Exportar cópia JSON</Button></div><p>Todos os produtos, contatos VCF e pedidos criados são salvos diretamente no banco em nuvem e ficam disponíveis em qualquer celular ou computador logado.</p></div></section><section className="panel"><div className="panel-heading"><div><div className="eyebrow">rastro de segurança</div><h3>Últimas alterações</h3></div></div>{audit.length ? <div className="audit-list">{audit.slice(0, 10).map((entry: any) => <div key={entry.id}><span className="audit-dot" /><div><strong>{entry.action} · {entry.entityType}</strong><small>{formatDateTime(entry.createdAt)} · registro {entry.entityId}</small></div></div>)}</div> : <EmptyState icon={Archive} title="Nenhuma alteração registrada" description="As ações administrativas aparecerão aqui conforme você usar o sistema." />}</section></div><section className="security-callout"><Settings size={18} /><div><strong>Sincronização Multi-Aparelho</strong><p>Qualquer contato VCF anexado, cliente cadastrada ou produto adicionado é salvo automaticamente no banco de dados e aparece em todos os aparelhos logados.</p></div></section></div>;
+  return <div className="content-stack"><SectionHeader eyebrow="administração principal" title="Configurações" description="Acesso total, sincronização em nuvem entre aparelhos e exportação dos dados da operação." /><div className="settings-grid"><section className="panel"><div className="panel-heading"><div><div className="eyebrow">perfil atual</div><h3>Administradora</h3></div><span className="admin-pill">acesso total</span></div><div className="profile-box"><div className="avatar large">{(user.name ?? "A").charAt(0)}</div><div><strong>{user.name ?? "Administradora"}</strong><span>{user.email ?? "Conta Administradora"}</span><small>Dados compartilhados em todos os aparelhos conectados.</small></div></div><div className="settings-actions" style={{ display: "grid", gap: "10px" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}><Button onClick={onSyncCloud} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""} /> {syncing ? "Sincronizando..." : "Empurrar dados para o Banco (Nuvem)"}</Button><Button variant="outline" onClick={onExport}><Download size={16} /> Exportar cópia JSON</Button><Button variant="outline" onClick={async () => { if (typeof (window as any).limparCacheApp === "function") { await (window as any).limparCacheApp(); } else { if ("caches" in window) { const keys = await caches.keys(); await Promise.all(keys.map((k: string) => caches.delete(k))); } if ("serviceWorker" in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r: ServiceWorkerRegistration) => r.unregister())); } window.location.reload(); } }}><RefreshCw size={16} /> Limpar Cache e Atualizar</Button></div><p>Todos os produtos, contatos VCF e pedidos criados são salvos diretamente no banco em nuvem e ficam disponíveis em qualquer celular ou computador logado.</p></div></section><section className="panel"><div className="panel-heading"><div><div className="eyebrow">rastro de segurança</div><h3>Últimas alterações</h3></div></div>{audit.length ? <div className="audit-list">{audit.slice(0, 10).map((entry: any) => <div key={entry.id}><span className="audit-dot" /><div><strong>{entry.action} · {entry.entityType}</strong><small>{formatDateTime(entry.createdAt)} · registro {entry.entityId}</small></div></div>)}</div> : <EmptyState icon={Archive} title="Nenhuma alteração registrada" description="As ações administrativas aparecerão aqui conforme você usar o sistema." />}</section></div><section className="security-callout"><Settings size={18} /><div><strong>Sincronização Multi-Aparelho</strong><p>Qualquer contato VCF anexado, cliente cadastrada ou produto adicionado é salvo automaticamente no banco de dados e aparece em todos os aparelhos logados.</p></div></section></div>;
 }
 
 function SectionHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {

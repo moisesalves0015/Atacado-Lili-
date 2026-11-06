@@ -1,4 +1,4 @@
-const VERSION = "va-pwa-v4";
+const VERSION = "va-pwa-v5";
 const SHELL_CACHE = `${VERSION}-shell`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-512-maskable.png", "/offline.html"];
