@@ -30,6 +30,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   ShoppingBag,
@@ -199,7 +200,9 @@ export default function Home() {
   const updateOrder = trpc.orders.update.useMutation();
   const cancelOrder = trpc.orders.cancel.useMutation();
   const reactivateOrder = trpc.orders.reactivate.useMutation();
+  const resetOrderPayments = trpc.orders.resetPayments.useMutation();
   const createPayment = trpc.payments.create.useMutation();
+  const deletePayment = trpc.payments.delete.useMutation();
   const createCharge = trpc.charges.create.useMutation();
   const updateTemplate = trpc.charges.updateTemplate.useMutation();
   const syncCloud = trpc.settings.syncCloud.useMutation();
@@ -473,12 +476,34 @@ export default function Home() {
     }, "Pagamento registrado");
   };
 
-  const submitOrderEdit = () => {
+  const submitOrderEdit = (resetPayment = false) => {
     if (!selectedOrder || !orderEditor) return;
     run(async () => {
-      await updateOrder.mutateAsync({ id: selectedOrder.id, clientId: Number(orderEditor.clientId), notes: orderEditor.notes, items: orderEditor.items.map(item => ({ productId: Number(item.productId), quantity: Number(item.quantity), unitPriceCents: item.unitPriceCents })) });
+      await updateOrder.mutateAsync({
+        id: selectedOrder.id,
+        clientId: Number(orderEditor.clientId),
+        notes: orderEditor.notes,
+        resetPayment,
+        items: orderEditor.items.map(item => ({
+          productId: Number(item.productId),
+          quantity: Number(item.quantity),
+          unitPriceCents: item.unitPriceCents,
+        })),
+      });
       setEditingOrder(false);
     }, "Pedido atualizado");
+  };
+
+  const handleDeletePayment = (paymentId: number) => {
+    run(async () => {
+      await deletePayment.mutateAsync({ id: paymentId });
+    }, "Pagamento excluído; o saldo do pedido foi atualizado");
+  };
+
+  const handleResetPayments = (orderId: number) => {
+    run(async () => {
+      await resetOrderPayments.mutateAsync({ id: orderId });
+    }, "Recebimento desfeito! O pedido voltou a ser Pendente.");
   };
 
   const handleVcfFile = async (file?: File) => {
@@ -821,7 +846,29 @@ export default function Home() {
       </Modal>
     )}
     {chargeDraft && <Modal title="Preparar cobrança" onClose={() => setChargeDraft(null)}><div className="charge-recipient"><div className="avatar">{chargeDraft.order.client?.name?.charAt(0) ?? "C"}</div><div><strong>{chargeDraft.order.client?.name}</strong><span>{chargeDraft.order.client?.phone} · saldo {formatMoney(Math.max(0, chargeDraft.order.totalCents - chargeDraft.order.paidCents))}</span></div></div><label>Modelo<select value={chargeDraft.templateId} onChange={event => { const id = Number(event.target.value); const template = templates.find(item => item.id === id); if (template) setChargeDraft({ ...chargeDraft, templateId: id, message: templateMessage(template.body, chargeDraft.order) }); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label>Mensagem<textarea className="message-editor" value={chargeDraft.message} onChange={event => setChargeDraft({ ...chargeDraft, message: event.target.value })} /></label><p className="microcopy">O botão abre o WhatsApp com o texto preenchido. O envio final depende da sua confirmação dentro do WhatsApp.</p><div className="modal-actions"><Button variant="outline" onClick={() => navigator.clipboard?.writeText(chargeDraft.message).then(() => toast.success("Mensagem copiada"))}><Copy size={16} /> Copiar</Button><Button onClick={submitCharge}><MessageCircle size={16} /> Abrir WhatsApp</Button></div></Modal>}
-    {selectedOrderId && <OrderDrawer order={selectedOrder} clients={clients} products={products} editor={orderEditor} setEditor={setOrderEditor} editing={editingOrder} setEditing={setEditingOrder} paymentAmount={paymentAmount} setPaymentAmount={setPaymentAmount} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onClose={() => setSelectedOrderId(null)} onSaveEdit={submitOrderEdit} onPayment={submitPayment} onCancel={() => run(() => cancelOrder.mutateAsync({ id: selectedOrderId }), "Pedido cancelado")} onReactivate={() => run(() => reactivateOrder.mutateAsync({ id: selectedOrderId }), "Pedido reativado com sucesso")} onCharge={openCharge} />}
+    {selectedOrderId && (
+      <OrderDrawer
+        order={selectedOrder}
+        clients={clients}
+        products={products}
+        editor={orderEditor}
+        setEditor={setOrderEditor}
+        editing={editingOrder}
+        setEditing={setEditingOrder}
+        paymentAmount={paymentAmount}
+        setPaymentAmount={setPaymentAmount}
+        paymentMethod={paymentMethod}
+        setPaymentMethod={setPaymentMethod}
+        onClose={() => setSelectedOrderId(null)}
+        onSaveEdit={submitOrderEdit}
+        onPayment={submitPayment}
+        onDeletePayment={handleDeletePayment}
+        onResetPayments={handleResetPayments}
+        onCancel={() => run(() => cancelOrder.mutateAsync({ id: selectedOrderId }), "Pedido cancelado")}
+        onReactivate={() => run(() => reactivateOrder.mutateAsync({ id: selectedOrderId }), "Pedido reativado com sucesso")}
+        onCharge={openCharge}
+      />
+    )}
     <VitrineMessageCenter
       open={showVitrineMessages}
       onClose={() => setShowVitrineMessages(false)}
@@ -1408,7 +1455,250 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><div className="modal-card"><div className="modal-head"><div><div className="eyebrow">editar operação</div><h3>{title}</h3></div><button onClick={onClose}><X size={18} /></button></div>{children}</div></div>;
 }
 
-function OrderDrawer({ order, clients, products, editor, setEditor, editing, setEditing, paymentAmount, setPaymentAmount, paymentMethod, setPaymentMethod, onClose, onSaveEdit, onPayment, onCancel, onReactivate, onCharge }: any) {
+function OrderDrawer({
+  order,
+  clients,
+  products,
+  editor,
+  setEditor,
+  editing,
+  setEditing,
+  paymentAmount,
+  setPaymentAmount,
+  paymentMethod,
+  setPaymentMethod,
+  onClose,
+  onSaveEdit,
+  onPayment,
+  onDeletePayment,
+  onResetPayments,
+  onCancel,
+  onReactivate,
+  onCharge,
+}: any) {
   if (!order) return <div className="drawer-backdrop"><div className="drawer-card"><RefreshCw className="spin" size={20} /> Carregando pedido...</div></div>;
-  return <div className="drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><aside className="drawer-card"><div className="drawer-head"><div><div className="eyebrow">detalhe do pedido</div><h3>{order.code}</h3><span>{formatDateTime(order.orderDate)} · {order.client.name}</span></div><button onClick={onClose}><X size={19} /></button></div>{editing && editor ? <div className="drawer-edit"><label>Cliente<select value={editor.clientId} onChange={event => setEditor({ ...editor, clientId: event.target.value })}>{clients.map((client: any) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label><div className="drawer-items-edit">{editor.items.map((item: SaleItem, index: number) => <div key={index}><select value={item.productId} onChange={event => { const items = [...editor.items]; items[index] = { ...item, productId: event.target.value, unitPriceCents: products.find((product: any) => product.id === Number(event.target.value))?.priceCents }; setEditor({ ...editor, items }); }}>{products.map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}</select><input type="number" min="1" value={item.quantity} onChange={event => { const items = [...editor.items]; items[index] = { ...item, quantity: event.target.value }; setEditor({ ...editor, items }); }} /></div>)}</div><label>Observações<textarea value={editor.notes} onChange={event => setEditor({ ...editor, notes: event.target.value })} /></label><Button onClick={onSaveEdit}><Check size={16} /> Salvar edição</Button></div> : <><div className="drawer-status-line"><StatusBadge status={order.status} />{order.status !== "cancelled" && <button className="text-button" onClick={() => setEditing(true)}><Pencil size={14} /> Editar pedido</button>}</div><div className="drawer-client"><div className="row-avatar large">{order.client.name.charAt(0)}</div><div><strong>{order.client.name}</strong><span>{order.client.phone}</span></div></div><div className="drawer-items">{order.items.map((item: any) => <div key={item.id}><div><strong>{item.product.name}</strong><span>{item.quantity} × {formatMoney(item.unitPriceCents)}</span></div><strong>{formatMoney(item.totalCents)}</strong></div>)}</div><div className="drawer-totals"><div><span>Total do pedido</span><strong>{formatMoney(order.totalCents)}</strong></div><div><span>Recebido</span><strong className="text-sage">{formatMoney(order.paidCents)}</strong></div><div><span>Saldo restante</span><strong className={order.totalCents - order.paidCents ? "text-coral" : ""}>{formatMoney(Math.max(0, order.totalCents - order.paidCents))}</strong></div></div>{order.status !== "cancelled" && order.totalCents - order.paidCents > 0 && <div className="payment-box"><div className="eyebrow">registrar recebimento</div><div className="payment-inline"><input value={paymentAmount} onChange={event => setPaymentAmount(event.target.value)} placeholder={centsToInput(Math.max(0, order.totalCents - order.paidCents))} inputMode="decimal" /><select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}><option>Pix</option><option>Dinheiro</option><option>Transferência</option><option>Cartão</option><option>Outro</option></select><Button onClick={onPayment}><Check size={15} /> Registrar</Button></div></div>}<div className="drawer-history"><div className="eyebrow">histórico de pagamentos</div>{order.payments.length ? order.payments.map((payment: any) => <div key={payment.id}><span>{formatDateTime(payment.paidAt)} · {payment.method || "Pagamento"}</span><strong>{formatMoney(payment.amountCents)}</strong></div>) : <p>Nenhum pagamento registrado ainda.</p>}</div><div className="drawer-actions">{order.status !== "cancelled" && order.totalCents - order.paidCents > 0 && <Button onClick={() => onCharge(order)}><MessageCircle size={16} /> Cobrar no WhatsApp</Button>}{order.status === "cancelled" ? <Button onClick={onReactivate}><RefreshCw size={16} /> Reativar pedido</Button> : <Button variant="outline" className="danger-outline" onClick={onCancel}><Trash2 size={16} /> Cancelar pedido</Button>}</div></>}</aside></div>;
+  return (
+    <div className="drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <aside className="drawer-card">
+        <div className="drawer-head">
+          <div>
+            <div className="eyebrow">detalhe do pedido</div>
+            <h3>{order.code}</h3>
+            <span>{formatDateTime(order.orderDate)} · {order.client.name}</span>
+          </div>
+          <button onClick={onClose}><X size={19} /></button>
+        </div>
+        {editing && editor ? (
+          <div className="drawer-edit">
+            <label>
+              Cliente
+              <select value={editor.clientId} onChange={event => setEditor({ ...editor, clientId: event.target.value })}>
+                {clients.map((client: any) => (
+                  <option key={client.id} value={client.id}>{client.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="drawer-items-edit">
+              {editor.items.map((item: SaleItem, index: number) => (
+                <div key={index}>
+                  <select
+                    value={item.productId}
+                    onChange={event => {
+                      const items = [...editor.items];
+                      items[index] = {
+                        ...item,
+                        productId: event.target.value,
+                        unitPriceCents: products.find((product: any) => product.id === Number(event.target.value))?.priceCents,
+                      };
+                      setEditor({ ...editor, items });
+                    }}
+                  >
+                    {products.map((product: any) => (
+                      <option key={product.id} value={product.id}>{product.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.quantity}
+                    onChange={event => {
+                      const items = [...editor.items];
+                      items[index] = { ...item, quantity: event.target.value };
+                      setEditor({ ...editor, items });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            <label>
+              Observações
+              <textarea value={editor.notes} onChange={event => setEditor({ ...editor, notes: event.target.value })} />
+            </label>
+
+            {order.paidCents > 0 && (
+              <div style={{ margin: "12px 0", padding: "10px 12px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>
+                <strong style={{ display: "block", color: "#b91c1c", fontSize: "13px" }}>
+                  Pagamento registrado: {formatMoney(order.paidCents)}
+                </strong>
+                <p style={{ margin: "4px 0 8px", fontSize: "12px", color: "#7f1d1d" }}>
+                  O pedido está como pago/parcial. Se não foi pago, reverta o recebimento para voltar a Pendente.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="danger-outline"
+                  onClick={() => {
+                    if (window.confirm("Deseja desfazer todos os pagamentos e marcar este pedido como Não Pago?")) {
+                      onResetPayments(order.id);
+                    }
+                  }}
+                >
+                  <RotateCcw size={14} /> Marcar como Não Pago (Zerar Recebido)
+                </Button>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+              <Button onClick={() => onSaveEdit(false)}><Check size={16} /> Salvar edição</Button>
+              <Button variant="outline" onClick={() => setEditing(false)}>Cancelar</Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="drawer-status-line">
+              <StatusBadge status={order.status} />
+              {order.status !== "cancelled" && (
+                <button className="text-button" onClick={() => setEditing(true)}>
+                  <Pencil size={14} /> Editar pedido
+                </button>
+              )}
+            </div>
+            <div className="drawer-client">
+              <div className="row-avatar large">{order.client.name.charAt(0)}</div>
+              <div>
+                <strong>{order.client.name}</strong>
+                <span>{order.client.phone}</span>
+              </div>
+            </div>
+            <div className="drawer-items">
+              {order.items.map((item: any) => (
+                <div key={item.id}>
+                  <div>
+                    <strong>{item.product.name}</strong>
+                    <span>{item.quantity} × {formatMoney(item.unitPriceCents)}</span>
+                  </div>
+                  <strong>{formatMoney(item.totalCents)}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="drawer-totals">
+              <div>
+                <span>Total do pedido</span>
+                <strong>{formatMoney(order.totalCents)}</strong>
+              </div>
+              <div>
+                <span>Recebido</span>
+                <strong className="text-sage">{formatMoney(order.paidCents)}</strong>
+                {order.paidCents > 0 && order.status !== "cancelled" && (
+                  <button
+                    type="button"
+                    className="text-button text-coral"
+                    style={{ fontSize: "11px", marginTop: "4px", display: "inline-block" }}
+                    onClick={() => {
+                      if (window.confirm("Deseja desfazer o recebimento deste pedido e marcá-lo como Não Pago?")) {
+                        onResetPayments(order.id);
+                      }
+                    }}
+                    title="Desfazer recebimento e voltar status para Pendente"
+                  >
+                    Desfazer recebimento
+                  </button>
+                )}
+              </div>
+              <div>
+                <span>Saldo restante</span>
+                <strong className={order.totalCents - order.paidCents ? "text-coral" : ""}>
+                  {formatMoney(Math.max(0, order.totalCents - order.paidCents))}
+                </strong>
+              </div>
+            </div>
+            {order.status !== "cancelled" && order.totalCents - order.paidCents > 0 && (
+              <div className="payment-box">
+                <div className="eyebrow">registrar recebimento</div>
+                <div className="payment-inline">
+                  <input
+                    value={paymentAmount}
+                    onChange={event => setPaymentAmount(event.target.value)}
+                    placeholder={centsToInput(Math.max(0, order.totalCents - order.paidCents))}
+                    inputMode="decimal"
+                  />
+                  <select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}>
+                    <option>Pix</option>
+                    <option>Dinheiro</option>
+                    <option>Transferência</option>
+                    <option>Cartão</option>
+                    <option>Outro</option>
+                  </select>
+                  <Button onClick={onPayment}><Check size={15} /> Registrar</Button>
+                </div>
+              </div>
+            )}
+            <div className="drawer-history">
+              <div className="eyebrow">histórico de pagamentos</div>
+              {order.payments.length ? (
+                order.payments.map((payment: any) => (
+                  <div key={payment.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", padding: "6px 0", borderBottom: "1px dashed var(--line)" }}>
+                    <div>
+                      <span>{formatDateTime(payment.paidAt)} · {payment.method || "Pagamento"}</span>
+                      <strong style={{ display: "block" }}>{formatMoney(payment.amountCents)}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-button text-coral"
+                      style={{ fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      onClick={() => {
+                        if (window.confirm(`Excluir o pagamento de ${formatMoney(payment.amountCents)}? O valor voltará a ser cobrado.`)) {
+                          onDeletePayment(payment.id);
+                        }
+                      }}
+                      title="Excluir este pagamento"
+                    >
+                      <Trash2 size={13} /> Excluir
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p>Nenhum pagamento registrado ainda.</p>
+              )}
+            </div>
+            <div className="drawer-actions">
+              {order.status !== "cancelled" && order.totalCents - order.paidCents > 0 && (
+                <Button onClick={() => onCharge(order)}><MessageCircle size={16} /> Cobrar no WhatsApp</Button>
+              )}
+              {order.status !== "cancelled" && order.paidCents > 0 && (
+                <Button
+                  variant="outline"
+                  className="danger-outline"
+                  onClick={() => {
+                    if (window.confirm("Deseja desfazer os pagamentos deste pedido e deixá-lo como Pendente?")) {
+                      onResetPayments(order.id);
+                    }
+                  }}
+                  title="O pedido voltará para status Pendente com saldo total a cobrar"
+                >
+                  <RotateCcw size={15} /> Marcar como Não Pago
+                </Button>
+              )}
+              {order.status === "cancelled" ? (
+                <Button onClick={onReactivate}><RefreshCw size={16} /> Reativar pedido</Button>
+              ) : (
+                <Button variant="outline" className="danger-outline" onClick={onCancel}><Trash2 size={16} /> Cancelar pedido</Button>
+              )}
+            </div>
+          </>
+        )}
+      </aside>
+    </div>
+  );
 }

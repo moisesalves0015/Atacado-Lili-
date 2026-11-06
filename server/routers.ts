@@ -14,6 +14,7 @@ import {
   createClient,
   createOrder,
   createProduct,
+  deletePayment,
   getAuditLogs,
   getDashboard,
   getOrderDetail,
@@ -27,6 +28,7 @@ import {
   listTemplates,
   reactivateOrder,
   recordPayment,
+  resetOrderPayments,
   syncLocalToCloud,
   updateClient,
   updateOrder,
@@ -183,16 +185,18 @@ export const appRouter = router({
     list: adminProcedure.input(z.object({ search: z.string().optional(), status: z.string().optional() })).query(({ input }) => listOrders(input)),
     detail: adminProcedure.input(z.object({ id: z.number().int().positive() })).query(({ input }) => getOrderDetail(input.id)),
     create: adminProcedure.input(z.object({ clientId: z.number().int().positive(), items: z.array(z.object({ productId: z.number().int().positive(), quantity: z.number().int().positive() })).min(1), dueDate: z.string().optional(), notes: z.string().optional(), orderDate: z.string().optional(), initialPaymentCents: money.optional() })).mutation(({ ctx, input }) => createOrder(ctx.user.id, input)),
-    update: adminProcedure.input(z.object({ id: z.number().int().positive(), clientId: z.number().int().positive(), items: z.array(z.object({ productId: z.number().int().positive(), quantity: z.number().int().positive(), unitPriceCents: positiveMoney.optional() })).min(1), dueDate: z.string().optional(), notes: z.string().optional() })).mutation(({ ctx, input }) => {
+    update: adminProcedure.input(z.object({ id: z.number().int().positive(), clientId: z.number().int().positive(), items: z.array(z.object({ productId: z.number().int().positive(), quantity: z.number().int().positive(), unitPriceCents: positiveMoney.optional() })).min(1), dueDate: z.string().optional(), notes: z.string().optional(), resetPayment: z.boolean().optional() })).mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return updateOrder(ctx.user.id, id, data);
     }),
     cancel: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => cancelOrder(ctx.user.id, input.id)),
     reactivate: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => reactivateOrder(ctx.user.id, input.id)),
+    resetPayments: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => resetOrderPayments(ctx.user.id, input.id)),
   }),
 
   payments: router({
     create: adminProcedure.input(z.object({ orderId: z.number().int().positive(), amountCents: positiveMoney, method: z.string().optional(), notes: z.string().optional(), paidAt: z.string().optional() })).mutation(({ ctx, input }) => recordPayment(ctx.user.id, input)),
+    delete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => deletePayment(ctx.user.id, input.id)),
   }),
 
   charges: router({

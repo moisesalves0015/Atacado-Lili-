@@ -1614,14 +1614,18 @@ async function updateOrder(actorUserId, orderId, input) {
       return { productId: product.id, quantity: item.quantity, unitPriceCents, totalCents: unitPriceCents * item.quantity };
     });
     const totalCents2 = normalizedItems2.reduce((sum, item) => sum + item.totalCents, 0);
+    if (input.resetPayment) {
+      store.payments = store.payments.filter((p) => p.orderId !== orderId);
+      existing2.paidCents = 0;
+    }
     if (existing2.paidCents > totalCents2) throw new Error("O novo total n\xE3o pode ser menor que o valor j\xE1 recebido");
-    const dueDate2 = input.dueDate ? /* @__PURE__ */ new Date(`${input.dueDate}T23:59:59`) : null;
-    const status2 = deriveStatus(totalCents2, existing2.paidCents, dueDate2);
+    const dueDate = input.dueDate ? /* @__PURE__ */ new Date(`${input.dueDate}T23:59:59`) : null;
+    const status = deriveStatus(totalCents2, existing2.paidCents, dueDate);
     const now = /* @__PURE__ */ new Date();
     existing2.clientId = input.clientId;
     existing2.totalCents = totalCents2;
-    existing2.status = status2;
-    existing2.dueDate = dueDate2;
+    existing2.status = status;
+    existing2.dueDate = dueDate;
     existing2.notes = input.notes?.trim() || null;
     existing2.updatedAt = now;
     store.orderItems = store.orderItems.filter((i) => i.orderId !== orderId);
@@ -1634,9 +1638,9 @@ async function updateOrder(actorUserId, orderId, input) {
         createdAt: now
       });
     }
-    await writeAudit(null, actorUserId, "update", "order", String(orderId), { totalCents: totalCents2, itemCount: normalizedItems2.length });
+    await writeAudit(null, actorUserId, "update", "order", String(orderId), { totalCents: totalCents2, itemCount: normalizedItems2.length, resetPayment: input.resetPayment });
     await saveStore();
-    return { ok: true, totalCents: totalCents2, status: status2 };
+    return { ok: true, totalCents: totalCents2, status };
   }
   const existingRows = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   const existing = existingRows[0];
@@ -1654,14 +1658,19 @@ async function updateOrder(actorUserId, orderId, input) {
     return { productId: product.id, quantity: item.quantity, unitPriceCents, totalCents: unitPriceCents * item.quantity };
   });
   const totalCents = normalizedItems.reduce((sum, item) => sum + item.totalCents, 0);
-  if (existing.paidCents > totalCents) throw new Error("O novo total n\xE3o pode ser menor que o valor j\xE1 recebido");
-  const dueDate = input.dueDate ? /* @__PURE__ */ new Date(`${input.dueDate}T23:59:59`) : null;
-  const status = deriveStatus(totalCents, existing.paidCents, dueDate);
   return db.transaction(async (tx) => {
-    await tx.update(orders).set({ clientId: input.clientId, totalCents, status, dueDate, notes: input.notes?.trim() || null }).where(eq(orders.id, orderId));
+    let paidCents = existing.paidCents;
+    if (input.resetPayment) {
+      await tx.delete(payments).where(eq(payments.orderId, orderId));
+      paidCents = 0;
+    }
+    if (paidCents > totalCents) throw new Error("O novo total n\xE3o pode ser menor que o valor j\xE1 recebido");
+    const dueDate = input.dueDate ? /* @__PURE__ */ new Date(`${input.dueDate}T23:59:59`) : null;
+    const status = deriveStatus(totalCents, paidCents, dueDate);
+    await tx.update(orders).set({ clientId: input.clientId, totalCents, paidCents, status, dueDate, notes: input.notes?.trim() || null }).where(eq(orders.id, orderId));
     await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
     await tx.insert(orderItems).values(normalizedItems.map((item) => ({ ...item, orderId })));
-    await writeAudit(tx, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length });
+    await writeAudit(tx, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length, resetPayment: input.resetPayment });
     return { ok: true, totalCents, status };
   });
 }
@@ -1736,6 +1745,71 @@ async function recordPayment(actorUserId, input) {
     await tx.update(orders).set({ paidCents, status }).where(eq(orders.id, input.orderId));
     await writeAudit(tx, actorUserId, "create", "payment", String(result.insertId), { orderId: input.orderId, amountCents: input.amountCents });
     return { paidCents, status };
+  });
+}
+async function deletePayment(actorUserId, paymentId) {
+  const db = await getDb();
+  if (!db) {
+    const store = getStore();
+    const paymentIndex = store.payments.findIndex((p) => p.id === paymentId);
+    if (paymentIndex === -1) throw new Error("Pagamento n\xE3o encontrado");
+    const payment2 = store.payments[paymentIndex];
+    const order2 = store.orders.find((o) => o.id === payment2.orderId);
+    if (!order2) throw new Error("Pedido n\xE3o encontrado");
+    store.payments.splice(paymentIndex, 1);
+    const remainingPayments = store.payments.filter((p) => p.orderId === order2.id);
+    const paidCents = remainingPayments.reduce((sum, p) => sum + p.amountCents, 0);
+    const status = deriveStatus(order2.totalCents, paidCents, order2.dueDate, order2.status === "cancelled");
+    const now = /* @__PURE__ */ new Date();
+    order2.paidCents = paidCents;
+    order2.status = status;
+    order2.updatedAt = now;
+    await writeAudit(null, actorUserId, "delete", "payment", String(paymentId), { orderId: order2.id, amountCents: payment2.amountCents });
+    await saveStore();
+    return { ok: true, orderId: order2.id, paidCents, status };
+  }
+  const paymentRows = await db.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
+  const payment = paymentRows[0];
+  if (!payment) throw new Error("Pagamento n\xE3o encontrado");
+  const orderRows = await db.select().from(orders).where(eq(orders.id, payment.orderId)).limit(1);
+  const order = orderRows[0];
+  if (!order) throw new Error("Pedido n\xE3o encontrado");
+  return db.transaction(async (tx) => {
+    await tx.delete(payments).where(eq(payments.id, paymentId));
+    const remainingPayments = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+    const paidCents = remainingPayments.reduce((sum, p) => sum + p.amountCents, 0);
+    const status = deriveStatus(order.totalCents, paidCents, order.dueDate, order.status === "cancelled");
+    await tx.update(orders).set({ paidCents, status }).where(eq(orders.id, order.id));
+    await writeAudit(tx, actorUserId, "delete", "payment", String(paymentId), { orderId: order.id, amountCents: payment.amountCents });
+    return { ok: true, orderId: order.id, paidCents, status };
+  });
+}
+async function resetOrderPayments(actorUserId, orderId) {
+  const db = await getDb();
+  if (!db) {
+    const store = getStore();
+    const order2 = store.orders.find((o) => o.id === orderId);
+    if (!order2) throw new Error("Pedido n\xE3o encontrado");
+    const removedPayments = store.payments.filter((p) => p.orderId === orderId);
+    store.payments = store.payments.filter((p) => p.orderId !== orderId);
+    const status = deriveStatus(order2.totalCents, 0, order2.dueDate, order2.status === "cancelled");
+    const now = /* @__PURE__ */ new Date();
+    order2.paidCents = 0;
+    order2.status = status;
+    order2.updatedAt = now;
+    await writeAudit(null, actorUserId, "reset_payments", "order", String(orderId), { count: removedPayments.length });
+    await saveStore();
+    return { ok: true, orderId, paidCents: 0, status };
+  }
+  const orderRows = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  const order = orderRows[0];
+  if (!order) throw new Error("Pedido n\xE3o encontrado");
+  return db.transaction(async (tx) => {
+    await tx.delete(payments).where(eq(payments.orderId, orderId));
+    const status = deriveStatus(order.totalCents, 0, order.dueDate, order.status === "cancelled");
+    await tx.update(orders).set({ paidCents: 0, status }).where(eq(orders.id, orderId));
+    await writeAudit(tx, actorUserId, "reset_payments", "order", String(orderId), {});
+    return { ok: true, orderId, paidCents: 0, status };
   });
 }
 async function cancelOrder(actorUserId, orderId) {
@@ -3182,15 +3256,17 @@ var appRouter = router({
     list: adminProcedure.input(z2.object({ search: z2.string().optional(), status: z2.string().optional() })).query(({ input }) => listOrders(input)),
     detail: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).query(({ input }) => getOrderDetail(input.id)),
     create: adminProcedure.input(z2.object({ clientId: z2.number().int().positive(), items: z2.array(z2.object({ productId: z2.number().int().positive(), quantity: z2.number().int().positive() })).min(1), dueDate: z2.string().optional(), notes: z2.string().optional(), orderDate: z2.string().optional(), initialPaymentCents: money.optional() })).mutation(({ ctx, input }) => createOrder(ctx.user.id, input)),
-    update: adminProcedure.input(z2.object({ id: z2.number().int().positive(), clientId: z2.number().int().positive(), items: z2.array(z2.object({ productId: z2.number().int().positive(), quantity: z2.number().int().positive(), unitPriceCents: positiveMoney.optional() })).min(1), dueDate: z2.string().optional(), notes: z2.string().optional() })).mutation(({ ctx, input }) => {
+    update: adminProcedure.input(z2.object({ id: z2.number().int().positive(), clientId: z2.number().int().positive(), items: z2.array(z2.object({ productId: z2.number().int().positive(), quantity: z2.number().int().positive(), unitPriceCents: positiveMoney.optional() })).min(1), dueDate: z2.string().optional(), notes: z2.string().optional(), resetPayment: z2.boolean().optional() })).mutation(({ ctx, input }) => {
       const { id, ...data } = input;
       return updateOrder(ctx.user.id, id, data);
     }),
     cancel: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => cancelOrder(ctx.user.id, input.id)),
-    reactivate: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => reactivateOrder(ctx.user.id, input.id))
+    reactivate: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => reactivateOrder(ctx.user.id, input.id)),
+    resetPayments: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => resetOrderPayments(ctx.user.id, input.id))
   }),
   payments: router({
-    create: adminProcedure.input(z2.object({ orderId: z2.number().int().positive(), amountCents: positiveMoney, method: z2.string().optional(), notes: z2.string().optional(), paidAt: z2.string().optional() })).mutation(({ ctx, input }) => recordPayment(ctx.user.id, input))
+    create: adminProcedure.input(z2.object({ orderId: z2.number().int().positive(), amountCents: positiveMoney, method: z2.string().optional(), notes: z2.string().optional(), paidAt: z2.string().optional() })).mutation(({ ctx, input }) => recordPayment(ctx.user.id, input)),
+    delete: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => deletePayment(ctx.user.id, input.id))
   }),
   charges: router({
     list: adminProcedure.query(() => listCharges()),

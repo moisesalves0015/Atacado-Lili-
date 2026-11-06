@@ -755,7 +755,7 @@ export async function createOrder(actorUserId: number, input: { clientId: number
   });
 }
 
-export async function updateOrder(actorUserId: number, orderId: number, input: { clientId: number; items: Array<{ productId: number; quantity: number; unitPriceCents?: number }>; dueDate?: string; notes?: string }) {
+export async function updateOrder(actorUserId: number, orderId: number, input: { clientId: number; items: Array<{ productId: number; quantity: number; unitPriceCents?: number }>; dueDate?: string; notes?: string; resetPayment?: boolean }) {
   const db = await getDb();
   if (!db) {
     const store = getStore();
@@ -772,6 +772,12 @@ export async function updateOrder(actorUserId: number, orderId: number, input: {
       return { productId: product.id, quantity: item.quantity, unitPriceCents, totalCents: unitPriceCents * item.quantity };
     });
     const totalCents = normalizedItems.reduce((sum, item) => sum + item.totalCents, 0);
+
+    if (input.resetPayment) {
+      store.payments = store.payments.filter(p => p.orderId !== orderId);
+      existing.paidCents = 0;
+    }
+
     if (existing.paidCents > totalCents) throw new Error("O novo total não pode ser menor que o valor já recebido");
     const dueDate = input.dueDate ? new Date(`${input.dueDate}T23:59:59`) : null;
     const status = deriveStatus(totalCents, existing.paidCents, dueDate);
@@ -792,7 +798,7 @@ export async function updateOrder(actorUserId: number, orderId: number, input: {
         createdAt: now,
       });
     }
-    await writeAudit(null, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length });
+    await writeAudit(null, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length, resetPayment: input.resetPayment });
     await saveStore();
     return { ok: true, totalCents, status };
   }
@@ -813,14 +819,21 @@ export async function updateOrder(actorUserId: number, orderId: number, input: {
     return { productId: product.id, quantity: item.quantity, unitPriceCents, totalCents: unitPriceCents * item.quantity };
   });
   const totalCents = normalizedItems.reduce((sum, item) => sum + item.totalCents, 0);
-  if (existing.paidCents > totalCents) throw new Error("O novo total não pode ser menor que o valor já recebido");
-  const dueDate = input.dueDate ? new Date(`${input.dueDate}T23:59:59`) : null;
-  const status = deriveStatus(totalCents, existing.paidCents, dueDate);
+
   return db.transaction(async tx => {
-    await tx.update(orders).set({ clientId: input.clientId, totalCents, status, dueDate, notes: input.notes?.trim() || null }).where(eq(orders.id, orderId));
+    let paidCents = existing.paidCents;
+    if (input.resetPayment) {
+      await tx.delete(payments).where(eq(payments.orderId, orderId));
+      paidCents = 0;
+    }
+    if (paidCents > totalCents) throw new Error("O novo total não pode ser menor que o valor já recebido");
+    const dueDate = input.dueDate ? new Date(`${input.dueDate}T23:59:59`) : null;
+    const status = deriveStatus(totalCents, paidCents, dueDate);
+
+    await tx.update(orders).set({ clientId: input.clientId, totalCents, paidCents, status, dueDate, notes: input.notes?.trim() || null }).where(eq(orders.id, orderId));
     await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
     await tx.insert(orderItems).values(normalizedItems.map(item => ({ ...item, orderId })));
-    await writeAudit(tx, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length });
+    await writeAudit(tx, actorUserId, "update", "order", String(orderId), { totalCents, itemCount: normalizedItems.length, resetPayment: input.resetPayment });
     return { ok: true, totalCents, status };
   });
 }
@@ -901,6 +914,79 @@ export async function recordPayment(actorUserId: number, input: { orderId: numbe
     await tx.update(orders).set({ paidCents, status }).where(eq(orders.id, input.orderId));
     await writeAudit(tx, actorUserId, "create", "payment", String((result as any).insertId), { orderId: input.orderId, amountCents: input.amountCents });
     return { paidCents, status };
+  });
+}
+
+export async function deletePayment(actorUserId: number, paymentId: number) {
+  const db = await getDb();
+  if (!db) {
+    const store = getStore();
+    const paymentIndex = store.payments.findIndex(p => p.id === paymentId);
+    if (paymentIndex === -1) throw new Error("Pagamento não encontrado");
+    const payment = store.payments[paymentIndex];
+    const order = store.orders.find(o => o.id === payment.orderId);
+    if (!order) throw new Error("Pedido não encontrado");
+
+    store.payments.splice(paymentIndex, 1);
+    const remainingPayments = store.payments.filter(p => p.orderId === order.id);
+    const paidCents = remainingPayments.reduce((sum, p) => sum + p.amountCents, 0);
+    const status = deriveStatus(order.totalCents, paidCents, order.dueDate, order.status === "cancelled");
+    const now = new Date();
+    order.paidCents = paidCents;
+    order.status = status;
+    order.updatedAt = now;
+    await writeAudit(null, actorUserId, "delete", "payment", String(paymentId), { orderId: order.id, amountCents: payment.amountCents });
+    await saveStore();
+    return { ok: true, orderId: order.id, paidCents, status };
+  }
+
+  const paymentRows = await db.select().from(payments).where(eq(payments.id, paymentId)).limit(1);
+  const payment = paymentRows[0];
+  if (!payment) throw new Error("Pagamento não encontrado");
+  const orderRows = await db.select().from(orders).where(eq(orders.id, payment.orderId)).limit(1);
+  const order = orderRows[0];
+  if (!order) throw new Error("Pedido não encontrado");
+
+  return db.transaction(async tx => {
+    await tx.delete(payments).where(eq(payments.id, paymentId));
+    const remainingPayments = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+    const paidCents = remainingPayments.reduce((sum, p) => sum + p.amountCents, 0);
+    const status = deriveStatus(order.totalCents, paidCents, order.dueDate, order.status === "cancelled");
+    await tx.update(orders).set({ paidCents, status }).where(eq(orders.id, order.id));
+    await writeAudit(tx, actorUserId, "delete", "payment", String(paymentId), { orderId: order.id, amountCents: payment.amountCents });
+    return { ok: true, orderId: order.id, paidCents, status };
+  });
+}
+
+export async function resetOrderPayments(actorUserId: number, orderId: number) {
+  const db = await getDb();
+  if (!db) {
+    const store = getStore();
+    const order = store.orders.find(o => o.id === orderId);
+    if (!order) throw new Error("Pedido não encontrado");
+
+    const removedPayments = store.payments.filter(p => p.orderId === orderId);
+    store.payments = store.payments.filter(p => p.orderId !== orderId);
+    const status = deriveStatus(order.totalCents, 0, order.dueDate, order.status === "cancelled");
+    const now = new Date();
+    order.paidCents = 0;
+    order.status = status;
+    order.updatedAt = now;
+    await writeAudit(null, actorUserId, "reset_payments", "order", String(orderId), { count: removedPayments.length });
+    await saveStore();
+    return { ok: true, orderId, paidCents: 0, status };
+  }
+
+  const orderRows = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  const order = orderRows[0];
+  if (!order) throw new Error("Pedido não encontrado");
+
+  return db.transaction(async tx => {
+    await tx.delete(payments).where(eq(payments.orderId, orderId));
+    const status = deriveStatus(order.totalCents, 0, order.dueDate, order.status === "cancelled");
+    await tx.update(orders).set({ paidCents: 0, status }).where(eq(orders.id, orderId));
+    await writeAudit(tx, actorUserId, "reset_payments", "order", String(orderId), {});
+    return { ok: true, orderId, paidCents: 0, status };
   });
 }
 
