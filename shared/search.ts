@@ -1,6 +1,6 @@
 /**
- * Utilitários para busca tolerante a acentuação e pequenos erros de digitação (fuzzy matching)
- * Usado tanto no backend (listClients) quanto no frontend (busca na vitrine e carteira).
+ * Utilitários para busca de clientes com indiferença a acentos, sinais e maiúsculas/minúsculas.
+ * A escrita precisa ser correspondente (sem aproximação/fuzzy com letras trocadas).
  */
 
 export function normalizeSearch(text?: string | null): string {
@@ -12,13 +12,15 @@ export function normalizeSearch(text?: string | null): string {
     .trim();
 }
 
+/**
+ * Distância de Levenshtein (mantida como utilitário geral).
+ */
 export function levenshteinDistance(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
 
-  // Otimização de espaço com dois vetores
   let prev = new Array(n + 1);
   let curr = new Array(n + 1);
 
@@ -32,9 +34,9 @@ export function levenshteinDistance(a: string, b: string): number {
     for (let j = 1; j <= n; j++) {
       const cost = aChar === b.charCodeAt(j - 1) ? 0 : 1;
       curr[j] = Math.min(
-        curr[j - 1] + 1, // inserção
-        prev[j] + 1, // deleção
-        prev[j - 1] + cost // substituição
+        curr[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost
       );
     }
     const temp = prev;
@@ -47,68 +49,54 @@ export function levenshteinDistance(a: string, b: string): number {
 
 /**
  * Verifica se um contato dá match com a busca fornecida.
- * Suporta:
- * 1. Sem acentuação (débora == debora)
- * 2. Case insensitive (MAIÚSCULAS/minúsculas)
- * 3. Busca por partes do telefone (dígitos)
- * 4. Palavras fora de ordem ("silva maria" acha "Maria Aparecida Silva")
- * 5. Escrita parecida / pequenos erros de digitação (1 a 2 letras diferentes)
+ * Regras:
+ * 1. Indiferente a sinais e acentuação (débora == debora, gonçalves == goncalves, joão == joao)
+ * 2. Indiferente a maiúsculas/minúsculas
+ * 3. Escrita correspondente: as letras digitadas devem bater exatamente como substring no nome/observações
+ * 4. Palavras compostas: se digitar mais de uma palavra ("silva maria"), todas precisam estar presentes
+ * 5. Dígitos de telefone: pesquisa direta no telefone caso fornecido
  */
 export function matchClient(
   client: { name?: string | null; phone?: string | null; notes?: string | null },
   rawQuery?: string | null
 ): boolean {
   if (!rawQuery) return true;
-  const query = normalizeSearch(rawQuery);
+  const trimmed = rawQuery.trim();
+  if (!trimmed) return true;
+
+  const query = normalizeSearch(trimmed);
   if (!query) return true;
 
   const rawPhone = client.phone || "";
   const phoneDigits = rawPhone.replace(/\D/g, "");
-  const queryDigits = query.replace(/\D/g, "");
+  const queryDigits = trimmed.replace(/\D/g, "");
 
-  // 1. Match por telefone se o usuário digitou dígitos
+  // 1. Match por telefone se o usuário digitou ao menos 3 dígitos
   if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) {
     return true;
   }
 
   const name = normalizeSearch(client.name);
-  if (!name) return false;
+  const notes = client.notes ? normalizeSearch(client.notes) : "";
 
-  // 2. Match exato ou substring direto do nome
-  if (name.includes(query)) {
+  // 2. Match direto de substring no nome ou notas
+  if (name.includes(query) || (notes && notes.includes(query))) {
     return true;
   }
 
-  // 3. Match nas observações (se houver)
-  if (client.notes) {
-    const notes = normalizeSearch(client.notes);
-    if (notes.includes(query)) return true;
-  }
-
-  // 4. Match por palavras / tokens (permite palavras fora de ordem e pequenos erros)
+  // 3. Match com palavras fora de ordem ("silva maria" acha "Maria Aparecida Silva")
   const queryTokens = query.split(/[\s,;.-]+/).filter(Boolean);
-  const nameTokens = name.split(/[\s,;.-]+/).filter(Boolean);
-
-  if (queryTokens.length === 0) return true;
-
-  // Todos os termos buscados precisam casar com alguma parte do nome
-  const allTokensMatch = queryTokens.every(qTok => {
-    // Substring em qualquer palavra do nome
-    for (const nTok of nameTokens) {
-      if (nTok.includes(qTok) || qTok.includes(nTok)) {
+  if (queryTokens.length > 1) {
+    const allTokensMatch = queryTokens.every(qTok => {
+      if (/^\d+$/.test(qTok) && phoneDigits.includes(qTok)) {
         return true;
       }
-      // Se a palavra tiver pelo menos 3 caracteres, tolera pequenos erros
-      if (qTok.length >= 3 && nTok.length >= 3) {
-        const maxDist = qTok.length >= 6 ? 2 : 1;
-        if (levenshteinDistance(qTok, nTok) <= maxDist) {
-          return true;
-        }
-      }
+      return name.includes(qTok) || (notes && notes.includes(qTok));
+    });
+    if (allTokensMatch) {
+      return true;
     }
-    return false;
-  });
+  }
 
-  return allTokensMatch;
+  return false;
 }
-

@@ -909,73 +909,36 @@ function normalizeSearch(text2) {
   if (!text2) return "";
   return text2.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
-function levenshteinDistance(a, b) {
-  const m = a.length;
-  const n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  let prev = new Array(n + 1);
-  let curr = new Array(n + 1);
-  for (let j = 0; j <= n; j++) {
-    prev[j] = j;
-  }
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i;
-    const aChar = a.charCodeAt(i - 1);
-    for (let j = 1; j <= n; j++) {
-      const cost = aChar === b.charCodeAt(j - 1) ? 0 : 1;
-      curr[j] = Math.min(
-        curr[j - 1] + 1,
-        // inserção
-        prev[j] + 1,
-        // deleção
-        prev[j - 1] + cost
-        // substituição
-      );
-    }
-    const temp = prev;
-    prev = curr;
-    curr = temp;
-  }
-  return prev[n];
-}
 function matchClient(client, rawQuery) {
   if (!rawQuery) return true;
-  const query = normalizeSearch(rawQuery);
+  const trimmed = rawQuery.trim();
+  if (!trimmed) return true;
+  const query = normalizeSearch(trimmed);
   if (!query) return true;
   const rawPhone = client.phone || "";
   const phoneDigits = rawPhone.replace(/\D/g, "");
-  const queryDigits = query.replace(/\D/g, "");
+  const queryDigits = trimmed.replace(/\D/g, "");
   if (queryDigits.length >= 3 && phoneDigits.includes(queryDigits)) {
     return true;
   }
   const name = normalizeSearch(client.name);
-  if (!name) return false;
-  if (name.includes(query)) {
+  const notes = client.notes ? normalizeSearch(client.notes) : "";
+  if (name.includes(query) || notes && notes.includes(query)) {
     return true;
   }
-  if (client.notes) {
-    const notes = normalizeSearch(client.notes);
-    if (notes.includes(query)) return true;
-  }
   const queryTokens = query.split(/[\s,;.-]+/).filter(Boolean);
-  const nameTokens = name.split(/[\s,;.-]+/).filter(Boolean);
-  if (queryTokens.length === 0) return true;
-  const allTokensMatch = queryTokens.every((qTok) => {
-    for (const nTok of nameTokens) {
-      if (nTok.includes(qTok) || qTok.includes(nTok)) {
+  if (queryTokens.length > 1) {
+    const allTokensMatch = queryTokens.every((qTok) => {
+      if (/^\d+$/.test(qTok) && phoneDigits.includes(qTok)) {
         return true;
       }
-      if (qTok.length >= 3 && nTok.length >= 3) {
-        const maxDist = qTok.length >= 6 ? 2 : 1;
-        if (levenshteinDistance(qTok, nTok) <= maxDist) {
-          return true;
-        }
-      }
+      return name.includes(qTok) || notes && notes.includes(qTok);
+    });
+    if (allTokensMatch) {
+      return true;
     }
-    return false;
-  });
-  return allTokensMatch;
+  }
+  return false;
 }
 
 // shared/vcf.ts
