@@ -22,6 +22,7 @@ import {
   ChevronUp,
   Copy,
   MessageCircle,
+  RefreshCw,
   Send,
   Package,
   SlidersHorizontal,
@@ -621,11 +622,16 @@ function VitrineChargesFlow({
   recordAction: any;
 }) {
   const [filterAll, setFilterAll] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
   // Cards expandidos por padrão para exibir os 5 botões e a mensagem imediatamente
   const [collapsedOrderIds, setCollapsedOrderIds] = useState<Record<number, boolean>>({});
 
   // Pedidos válidos com saldo pendente
   const pendingOrders = useMemo(() => collectibleOrders(orders), [orders]);
+  const cancelledOrders = useMemo(
+    () => orders.filter((o: any) => o.status === "cancelled"),
+    [orders]
+  );
 
   // Contagem de cobranças pendentes por produto
   const pendingCountByProduct = useMemo(() => {
@@ -640,13 +646,14 @@ function VitrineChargesFlow({
 
   // Filtra os pedidos relevantes de acordo com a seleção
   const relevantOrders = useMemo(() => {
+    const baseList = showCancelled ? [...pendingOrders, ...cancelledOrders] : pendingOrders;
     if (filterAll || !selectedProductId) {
-      return pendingOrders;
+      return baseList;
     }
-    return pendingOrders.filter(o =>
+    return baseList.filter(o =>
       o.items?.some((item: any) => item.productId === selectedProductId)
     );
-  }, [pendingOrders, filterAll, selectedProductId]);
+  }, [pendingOrders, cancelledOrders, showCancelled, filterAll, selectedProductId]);
 
   const toggleOrderExpand = (orderId: number) => {
     setCollapsedOrderIds(prev => ({
@@ -679,13 +686,24 @@ function VitrineChargesFlow({
               <strong>Filtrar por produto</strong>
               <small>Mostrando peças com cobranças pendentes</small>
             </div>
-            <button
-              type="button"
-              className={`vmc-pill-filter ${filterAll ? "is-active" : ""}`}
-              onClick={() => setFilterAll(prev => !prev)}
-            >
-              Ver todas as peças ({pendingOrders.length})
-            </button>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              {cancelledOrders.length > 0 && (
+                <button
+                  type="button"
+                  className={`vmc-pill-filter ${showCancelled ? "is-active" : ""}`}
+                  onClick={() => setShowCancelled(prev => !prev)}
+                >
+                  Cancelados ({cancelledOrders.length})
+                </button>
+              )}
+              <button
+                type="button"
+                className={`vmc-pill-filter ${filterAll ? "is-active" : ""}`}
+                onClick={() => setFilterAll(prev => !prev)}
+              >
+                Ver todas as peças ({pendingOrders.length})
+              </button>
+            </div>
           </div>
         </div>
 
@@ -825,6 +843,7 @@ function VitrineChargeCardItem({
 
   const createPayment = trpc.payments.create.useMutation();
   const cancelOrder = trpc.orders.cancel.useMutation();
+  const reactivateOrder = trpc.orders.reactivate.useMutation();
   const utils = trpc.useUtils();
 
   // Produto principal deste pedido (para foto e contexto)
@@ -982,6 +1001,26 @@ function VitrineChargeCardItem({
     }
   };
 
+  // Atualizar status: Reativar
+  const handleReactivateOrder = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await reactivateOrder.mutateAsync({ id: order.id });
+      setOrderStatus(res.status || "pending");
+      utils.orders.list.invalidate();
+      utils.reports.rows.invalidate();
+      utils.dashboard.summary.invalidate();
+      onActionRecorded();
+      toast.success(`Pedido de ${order.client?.name} reativado com sucesso!`);
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : "Erro ao reativar pedido");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -1125,16 +1164,29 @@ function VitrineChargeCardItem({
               <span>Pago</span>
             </button>
 
-            <button
-              type="button"
-              className={`vmc-action-btn vmc-btn-cancel ${currentEffectiveStatus === "cancelled" ? "is-active" : ""}`}
-              onClick={handleCancelOrder}
-              disabled={busy || currentEffectiveStatus === "cancelled" || currentEffectiveStatus === "paid"}
-              title="Cancelar pedido"
-            >
-              <X size={12} />
-              <span>Cancelar</span>
-            </button>
+            {currentEffectiveStatus === "cancelled" ? (
+              <button
+                type="button"
+                className="vmc-action-btn vmc-btn-paid"
+                onClick={handleReactivateOrder}
+                disabled={busy}
+                title="Reativar este pedido cancelado"
+              >
+                <RefreshCw size={12} />
+                <span>Reativar</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="vmc-action-btn vmc-btn-cancel"
+                onClick={handleCancelOrder}
+                disabled={busy || currentEffectiveStatus === "paid"}
+                title="Cancelar pedido"
+              >
+                <X size={12} />
+                <span>Cancelar</span>
+              </button>
+            )}
           </div>
         </div>
       )}

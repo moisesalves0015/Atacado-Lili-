@@ -25,6 +25,7 @@ import {
   listOrders,
   listProducts,
   listTemplates,
+  reactivateOrder,
   recordPayment,
   syncLocalToCloud,
   updateClient,
@@ -187,6 +188,7 @@ export const appRouter = router({
       return updateOrder(ctx.user.id, id, data);
     }),
     cancel: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => cancelOrder(ctx.user.id, input.id)),
+    reactivate: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => reactivateOrder(ctx.user.id, input.id)),
   }),
 
   payments: router({

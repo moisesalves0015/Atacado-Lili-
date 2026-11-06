@@ -449,6 +449,7 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
 
   const createPayment = trpc.payments.create.useMutation();
   const cancelOrder = trpc.orders.cancel.useMutation();
+  const reactivateOrder = trpc.orders.reactivate.useMutation();
   const utils = trpc.useUtils();
 
   const act = async (status: Exclude<ActionStatus, "api_confirmed">) => {
@@ -542,22 +543,38 @@ function ChargeCard({ order, card, templates, record, refetchOrders, onPatch, on
         >
           <Check size={14} /> Pago
         </button>
-        <button
-          type="button"
-          className="vmc-action-btn cancel"
-          disabled={order.status === "cancelled"}
-          onClick={async () => {
-            if (!window.confirm(`Deseja realmente CANCELAR o pedido ${order.code} de ${order.client.name}?`)) return;
-            await cancelOrder.mutateAsync({ id: order.id });
-            void refetchOrders();
-            void utils.orders.list.invalidate();
-            void utils.reports.rows.invalidate();
-            void utils.dashboard.summary.invalidate();
-            toast.success(`Pedido de ${order.client.name} cancelado.`);
-          }}
-        >
-          <X size={14} /> Cancelar
-        </button>
+        {order.status === "cancelled" ? (
+          <button
+            type="button"
+            className="vmc-action-btn paid"
+            onClick={async () => {
+              await reactivateOrder.mutateAsync({ id: order.id });
+              void refetchOrders();
+              void utils.orders.list.invalidate();
+              void utils.reports.rows.invalidate();
+              void utils.dashboard.summary.invalidate();
+              toast.success(`Pedido de ${order.client.name} reativado com sucesso!`);
+            }}
+          >
+            <RefreshCw size={14} /> Reativar
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="vmc-action-btn cancel"
+            onClick={async () => {
+              if (!window.confirm(`Deseja realmente CANCELAR o pedido ${order.code} de ${order.client.name}?`)) return;
+              await cancelOrder.mutateAsync({ id: order.id });
+              void refetchOrders();
+              void utils.orders.list.invalidate();
+              void utils.reports.rows.invalidate();
+              void utils.dashboard.summary.invalidate();
+              toast.success(`Pedido de ${order.client.name} cancelado.`);
+            }}
+          >
+            <X size={14} /> Cancelar
+          </button>
+        )}
       </div>
     </article>
   );

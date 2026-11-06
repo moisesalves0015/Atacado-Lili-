@@ -1713,6 +1713,27 @@ async function cancelOrder(actorUserId, orderId) {
   await writeAudit(db, actorUserId, "cancel", "order", String(orderId));
   return { ok: true };
 }
+async function reactivateOrder(actorUserId, orderId) {
+  const db = await getDb();
+  if (!db) {
+    const store = getStore();
+    const order = store.orders.find((o) => o.id === orderId);
+    if (!order) throw new Error("Pedido n\xE3o encontrado");
+    const nextStatus2 = deriveStatus(order.totalCents, order.paidCents, order.dueDate);
+    order.status = nextStatus2;
+    order.updatedAt = /* @__PURE__ */ new Date();
+    await writeAudit(null, actorUserId, "reactivate", "order", String(orderId), { status: nextStatus2 });
+    await saveStore();
+    return { ok: true, status: nextStatus2 };
+  }
+  const existingRows = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  const existing = existingRows[0];
+  if (!existing) throw new Error("Pedido n\xE3o encontrado");
+  const nextStatus = deriveStatus(existing.totalCents, existing.paidCents, existing.dueDate);
+  await db.update(orders).set({ status: nextStatus }).where(eq(orders.id, orderId));
+  await writeAudit(db, actorUserId, "reactivate", "order", String(orderId), { status: nextStatus });
+  return { ok: true, status: nextStatus };
+}
 async function getProductDetail(productId) {
   const db = await getDb();
   if (!db) {
@@ -3123,7 +3144,8 @@ var appRouter = router({
       const { id, ...data } = input;
       return updateOrder(ctx.user.id, id, data);
     }),
-    cancel: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => cancelOrder(ctx.user.id, input.id))
+    cancel: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => cancelOrder(ctx.user.id, input.id)),
+    reactivate: adminProcedure.input(z2.object({ id: z2.number().int().positive() })).mutation(({ ctx, input }) => reactivateOrder(ctx.user.id, input.id))
   }),
   payments: router({
     create: adminProcedure.input(z2.object({ orderId: z2.number().int().positive(), amountCents: positiveMoney, method: z2.string().optional(), notes: z2.string().optional(), paidAt: z2.string().optional() })).mutation(({ ctx, input }) => recordPayment(ctx.user.id, input))

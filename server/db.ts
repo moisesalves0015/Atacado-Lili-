@@ -918,6 +918,28 @@ export async function cancelOrder(actorUserId: number, orderId: number) {
   return { ok: true };
 }
 
+export async function reactivateOrder(actorUserId: number, orderId: number) {
+  const db = await getDb();
+  if (!db) {
+    const store = getStore();
+    const order = store.orders.find(o => o.id === orderId);
+    if (!order) throw new Error("Pedido não encontrado");
+    const nextStatus = deriveStatus(order.totalCents, order.paidCents, order.dueDate);
+    order.status = nextStatus;
+    order.updatedAt = new Date();
+    await writeAudit(null, actorUserId, "reactivate", "order", String(orderId), { status: nextStatus });
+    await saveStore();
+    return { ok: true, status: nextStatus };
+  }
+  const existingRows = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  const existing = existingRows[0];
+  if (!existing) throw new Error("Pedido não encontrado");
+  const nextStatus = deriveStatus(existing.totalCents, existing.paidCents, existing.dueDate);
+  await db.update(orders).set({ status: nextStatus }).where(eq(orders.id, orderId));
+  await writeAudit(db, actorUserId, "reactivate", "order", String(orderId), { status: nextStatus });
+  return { ok: true, status: nextStatus };
+}
+
 export async function getProductDetail(productId: number) {
   const db = await getDb();
   if (!db) {
